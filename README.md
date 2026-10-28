@@ -1,4 +1,5 @@
 # repo-mapper
+
 tool for creating structured visual maps of a git repositories
 
 `repo-mapper` is a Node.js library (and CLI) that turns the structure of a git
@@ -21,22 +22,22 @@ treemap**.
 ## Installation
 
 ```sh
-npm install repo-mapper
+npm install @miikaniemela/repo-mapper
 ```
 
 ## CLI
 
 ```sh
-npx repo-mapper [directory] [options]
+npx @miikaniemela/repo-mapper [directory] [options]
 
 # nested treemap as SVG on stdout
-npx repo-mapper . > map.svg
+npx @miikaniemela/repo-mapper . > map.svg
 
-# interactive cascaded treemap (hover or focus a component to highlight its connections)
-npx repo-mapper path/to/repo --type cascaded --out map.html
+# interactive cascaded treemap (hover a component to highlight its connections)
+npx @miikaniemela/repo-mapper path/to/repo --type cascaded --out map.html
 
 # structured data used to draw the treemap
-npx repo-mapper . --format json --depth 2
+npx @miikaniemela/repo-mapper . --format json --depth 2
 ```
 
 | Option | Description |
@@ -54,7 +55,7 @@ npx repo-mapper . --format json --depth 2
 ## Library
 
 ```js
-import { mapRepository, render } from 'repo-mapper';
+import { mapRepository, render } from '@miikaniemela/repo-mapper';
 
 const { graph, tree } = mapRepository('path/to/repo', { maxDepth: 3 });
 const svg = render(tree, { format: 'svg', type: 'cascaded', width: 1600, height: 1000 });
