@@ -8,6 +8,7 @@ export const DEFAULT_EXCLUDED_DIRS = Object.freeze([
   'bower_components',
   'jspm_packages',
   'web_modules',
+  'dist',
   '.git',
   '.hg',
   '.svn',

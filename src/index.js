@@ -1,14 +1,21 @@
+// Used locally by `mapRepository` and `render` below.
 import { buildDependencyGraph } from './graph.js';
 import { renderHtml, renderSvg } from './render.js';
 import { buildModuleTree } from './tree.js';
 
+// Public API of the package: re-exported for library users so that each step of
+// the pipeline (scan -> imports -> graph -> tree -> layout -> render) and its
+// defaults can be used and customised on their own. They are not used in this file.
 export { buildDependencyGraph } from './graph.js';
 export { extractImports, resolveImport } from './imports.js';
 export { computeTreemap, TREEMAP_TYPES } from './layout.js';
 export { renderHtml, renderSvg } from './render.js';
 export {
+  // Directories that are never mapped (e.g. node_modules, dist).
   DEFAULT_EXCLUDED_DIRS,
+  // Extensions mapped by default (alias of SCRIPT_EXTENSIONS).
   DEFAULT_EXTENSIONS,
+  // Extensions whose imports are analysed for connections.
   SCRIPT_EXTENSIONS,
   countLines,
   findLocalPackages,

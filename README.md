@@ -8,8 +8,8 @@ treemap**.
 * The mapped items are the modules of the application only: directories are
   modules / sub-modules and source files are components. Imported libraries
   that are not implemented in the repository are excluded – `node_modules/`
-  (and other vendored package folders) are never mapped, and files ignored by
-  `.gitignore` are skipped.
+  (and other vendored package folders) and `dist/` build output are never
+  mapped, and files ignored by `.gitignore` are skipped.
 * The connections between modules are found by analysing the JavaScript and
   TypeScript imports (`import`, `export … from`, `require()`, `import()`),
   including TypeScript `.js` → `.ts` imports and imports of packages that are

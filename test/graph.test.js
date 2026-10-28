@@ -81,3 +81,8 @@ test('listRepositoryFiles rejects symbolic links', () => {
     assert.deepEqual(listRepositoryFiles(root), ['src/a.js']);
   }
 });
+
+test('listRepositoryFiles never maps dist build output', () => {
+  const root = createFixture({ 'src/a.js': 'export {};\n', 'dist/a.js': 'export {};\n', 'pkg/dist/b.js': 'export {};\n' });
+  assert.deepEqual(listRepositoryFiles(root, { useGit: false }), ['src/a.js']);
+});
