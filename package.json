@@ -1,0 +1,45 @@
+{
+  "name": "@miikaniemela/repo-mapper",
+  "version": "0.1.0",
+  "description": "Create structured visual maps (d3 cascaded and nested treemaps) of the modules in a git repository and the connections between them",
+  "type": "module",
+  "main": "./src/index.js",
+  "exports": {
+    ".": "./src/index.js",
+    "./package.json": "./package.json"
+  },
+  "bin": {
+    "repo-mapper": "./bin/repo-mapper.js"
+  },
+  "files": [
+    "src",
+    "bin",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "test": "node --test"
+  },
+  "keywords": [
+    "treemap",
+    "d3",
+    "dependency-graph",
+    "visualization",
+    "git",
+    "repository"
+  ],
+  "license": "Unlicense",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/MiikaNiemela/repo-mapper.git"
+  },
+  "publishConfig": {
+    "registry": "https://npm.pkg.github.com"
+  },
+  "engines": {
+    "node": ">=18.3"
+  },
+  "dependencies": {
+    "d3": "^7.9.0"
+  }
+}
