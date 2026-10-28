@@ -32,17 +32,17 @@ try {
   parsed = parseArgs({
     allowPositionals: true,
     options: {
-      type: { type: 'string', short: 't', default: 'nested' },
+      type: { type: 'string', short: 't' },
       format: { type: 'string', short: 'f' },
       out: { type: 'string', short: 'o' },
-      width: { type: 'string', short: 'w', default: '1200' },
-      height: { type: 'string', short: 'H', default: '800' },
+      width: { type: 'string', short: 'w' },
+      height: { type: 'string', short: 'H' },
       depth: { type: 'string', short: 'd' },
       ext: { type: 'string', short: 'e' },
       exclude: { type: 'string', short: 'x' },
-      links: { type: 'boolean', default: false },
-      'no-git': { type: 'boolean', default: false },
-      help: { type: 'boolean', short: 'h', default: false },
+      links: { type: 'boolean' },
+      'no-git': { type: 'boolean' },
+      help: { type: 'boolean', short: 'h' },
     },
   });
 } catch (error) {
@@ -50,6 +50,9 @@ try {
 }
 
 const { values, positionals } = parsed;
+values.type ??= 'nested';
+values.width ??= '1200';
+values.height ??= '800';
 if (values.help) {
   process.stdout.write(USAGE);
   process.exit(0);

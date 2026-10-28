@@ -38,46 +38,66 @@ export function orderByConnectivity(nodes, accessors) {
     value(b) - value(a) ||
     (id(a) < id(b) ? -1 : id(a) > id(b) ? 1 : 0);
 
-  const remaining = [...nodes].sort(rank);
-  const hub = remaining.shift();
+  const sorted = [...nodes].sort(rank);
+  const hub = sorted[0];
   const meanValue = nodes.reduce((sum, n) => sum + value(n), 0) / nodes.length || 1;
+
+  // Sparse adjacency (index -> [[index, weight]]) computed once.
+  const neighbours = sorted.map(() => []);
+  for (let i = 0; i < sorted.length; i += 1) {
+    for (let j = i + 1; j < sorted.length; j += 1) {
+      const w = weight(sorted[i], sorted[j]);
+      if (w > 0) {
+        neighbours[i].push([j, w]);
+        neighbours[j].push([i, w]);
+      }
+    }
+  }
+
+  // Positions: left[i] = -(i + 1), hub = 0, right[i] = i + 1.
+  const position = new Map([[0, 0]]);
+  const placedWeight = new Array(sorted.length).fill(0);
+  const remaining = new Set(sorted.keys());
+  const place = (index, pos) => {
+    position.set(index, pos);
+    remaining.delete(index);
+    for (const [other, w] of neighbours[index]) placedWeight[other] += w;
+  };
+  place(0, 0);
+
   const left = [];
   const right = [];
   let leftValue = 0;
   let rightValue = 0;
-
-  // Distance cost of appending `node` to the outer end of `side`
-  // (positions: left[i] = -(i + 1), hub = 0, right[i] = i + 1).
-  const distanceCost = (node, toLeft) => {
-    const position = toLeft ? -(left.length + 1) : right.length + 1;
-    let cost = weight(node, hub) * Math.abs(position);
-    left.forEach((other, i) => (cost += weight(node, other) * Math.abs(position + i + 1)));
-    right.forEach((other, i) => (cost += weight(node, other) * Math.abs(position - i - 1)));
+  const distanceCost = (index, pos) => {
+    let cost = 0;
+    for (const [other, w] of neighbours[index]) {
+      if (position.has(other)) cost += w * Math.abs(pos - position.get(other));
+    }
     return cost;
   };
 
-  while (remaining.length) {
-    let bestIndex = 0;
-    let bestWeight = -1;
-    remaining.forEach((node, index) => {
-      const w = [hub, ...left, ...right].reduce((sum, other) => sum + weight(node, other), 0);
-      if (w > bestWeight) {
-        bestWeight = w;
-        bestIndex = index;
-      }
-    });
-    const [node] = remaining.splice(bestIndex, 1);
+  while (remaining.size) {
+    let best = -1;
+    for (const index of remaining) {
+      if (best === -1 || placedWeight[index] > placedWeight[best]) best = index;
+    }
+    const node = sorted[best];
     const v = value(node);
-    const balanceFactor = 0.5 * Math.max(1, bestWeight);
-    const costLeft = distanceCost(node, true) + (balanceFactor * Math.abs(leftValue + v - rightValue)) / meanValue;
-    const costRight = distanceCost(node, false) + (balanceFactor * Math.abs(rightValue + v - leftValue)) / meanValue;
+    const balanceFactor = 0.5 * Math.max(1, placedWeight[best]);
+    const leftPos = -(left.length + 1);
+    const rightPos = right.length + 1;
+    const costLeft = distanceCost(best, leftPos) + (balanceFactor * Math.abs(leftValue + v - rightValue)) / meanValue;
+    const costRight = distanceCost(best, rightPos) + (balanceFactor * Math.abs(rightValue + v - leftValue)) / meanValue;
     const goLeft = costLeft !== costRight ? costLeft < costRight : leftValue < rightValue;
     if (goLeft) {
       left.push(node);
       leftValue += v;
+      place(best, leftPos);
     } else {
       right.push(node);
       rightValue += v;
+      place(best, rightPos);
     }
   }
   return [...left.reverse(), hub, ...right];

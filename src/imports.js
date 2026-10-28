@@ -34,6 +34,7 @@ const RESOLVE_EXTENSIONS = ['.ts', '.tsx', '.mts', '.cts', '.js', '.jsx', '.mjs'
 const JS_TO_TS = { '.js': ['.ts', '.tsx'], '.jsx': ['.tsx'], '.mjs': ['.mts'], '.cjs': ['.cts'] };
 
 function candidates(target) {
+  if (!target) return RESOLVE_EXTENSIONS.map((e) => `index${e}`);
   const list = [target];
   const ext = path.posix.extname(target);
   for (const alt of JS_TO_TS[ext] ?? []) list.push(target.slice(0, -ext.length) + alt);
@@ -43,8 +44,9 @@ function candidates(target) {
 }
 
 function resolvePath(target, fileSet) {
-  const normalized = path.posix.normalize(target).replace(/^\.\/+/, '').replace(/\/$/, '');
+  let normalized = path.posix.normalize(target).replace(/^\.\/+/, '').replace(/\/$/, '');
   if (normalized.startsWith('../') || normalized === '..') return null;
+  if (normalized === '.') normalized = '';
   return candidates(normalized).find((c) => fileSet.has(c)) ?? null;
 }
 

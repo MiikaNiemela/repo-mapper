@@ -49,6 +49,14 @@ test('resolveImport resolves relative files, extensions, index files and TS .js 
   assert.equal(resolveImport('src/main.ts', './a?raw', files), 'src/a.ts');
 });
 
+test('resolveImport resolves imports of a directory index, including the repository root', () => {
+  const files = new Set(['index.js', 'a.js', 'lib/index.ts', 'lib/b.ts']);
+  assert.equal(resolveImport('a.js', '.', files), 'index.js');
+  assert.equal(resolveImport('a.js', './', files), 'index.js');
+  assert.equal(resolveImport('lib/b.ts', '..', files), 'index.js');
+  assert.equal(resolveImport('lib/b.ts', '.', files), 'lib/index.ts');
+});
+
 test('resolveImport ignores libraries not implemented in the repository', () => {
   const files = new Set(['src/a.ts', 'node_modules/react/index.js']);
   assert.equal(resolveImport('src/a.ts', 'react', files), null);
