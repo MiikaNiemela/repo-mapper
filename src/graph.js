@@ -36,7 +36,16 @@ function normalizeAliases(aliases, warnings) {
  * libraries are counted in `externalImports` but not mapped.
  *
  * @param {string} root repository directory
- * @param {{ extensions?: string[], useGit?: boolean, exclude?: string[], aliases?: { find: string, replacement: string }[] }} [options]
+ * @param {{
+ *   extensions?: string[],
+ *   useGit?: boolean,
+ *   exclude?: string[],
+ *   include?: string[],
+ *   ignore?: string[],
+ *   only?: string[],
+ *   skip?: string[],
+ *   aliases?: { find: string, replacement: string }[],
+ * }} [options]
  * @returns {{
  *   root: string,
  *   name: string,
@@ -47,10 +56,20 @@ function normalizeAliases(aliases, warnings) {
  */
 export function buildDependencyGraph(root, options = {}) {
   const absoluteRoot = path.resolve(root);
-  const { files: scanned, packages, packageScopes, repositoryFiles } = scanRepository(absoluteRoot, options);
+  const {
+    files: scanned,
+    packages,
+    packageScopes,
+    repositoryFiles,
+    warnings: filterWarnings,
+  } = scanRepository(absoluteRoot, options);
   const fileSet = new Set(scanned.map((f) => f.path));
   const projects = loadProjectConfigs(absoluteRoot, repositoryFiles);
-  const warnings = [...projects.warnings, ...loadJestAliases(absoluteRoot, repositoryFiles, packageScopes)];
+  const warnings = [
+    ...filterWarnings,
+    ...projects.warnings,
+    ...loadJestAliases(absoluteRoot, repositoryFiles, packageScopes),
+  ];
   const explicitAliases = normalizeAliases(options.aliases, warnings);
   const links = [];
   const files = scanned.map(({ path: file, lines, source }) => {

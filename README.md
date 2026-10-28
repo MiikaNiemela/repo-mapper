@@ -51,16 +51,73 @@ npx @miikaniemela/repo-mapper . --format json --depth 2
 | `-d, --depth` | collapse modules deeper than *n* directory levels |
 | `-e, --ext` | comma separated extensions to map (default: JS/TS extensions) |
 | `--alias` | import alias in `find=replacement` form; repeat for multiple ordered rules (for example `--alias '@/*=src/*'`) |
-| `-x, --exclude` | comma separated directory names to exclude (in addition to `node_modules` etc.) |
+| `--only` | include only comma separated file categories: `code`, `test`, `config`, `types`, `story`, `generated` |
+| `--skip` | exclude comma separated file categories |
+| `--include` | include comma separated globs matched against repo-relative paths |
+| `--ignore` | exclude comma separated globs matched against repo-relative paths |
+| `-x, --exclude` | comma separated directory names or repo-relative directory paths (in addition to `node_modules` etc.) |
 | `--links` | draw the connections between components (always on in `html`) |
 | `--no-git` | walk the file system instead of using `git ls-files` |
+
+Filtering uses always-active built-in rules for common tools:
+
+| Category | Built-in matches |
+| --- | --- |
+| `test` | Jest/Vitest `*.test.*` and `*.spec.*` files, `__tests__`, `__mocks__`, `test`, `tests`, Playwright `e2e`, and Cypress directories |
+| `config` | Jest, Vitest, Playwright, Cypress, ESLint, Prettier, TypeScript/JavaScript, Vite, Webpack, Rollup, Babel, and Next.js config files |
+| `types` | TypeScript declaration files (`*.d.ts`, `*.d.mts`, `*.d.cts`) |
+| `story` | Storybook `*.stories.*` files and `.storybook` directories |
+| `generated` | `*.generated.*`, `*.gen.*`, and files in `generated` directories |
+| `code` | any selected file not matched by a more specific category |
+
+For example:
+
+```sh
+repo-mapper . --only code
+repo-mapper . --skip test,config
+repo-mapper . --include 'src/**,packages/*/src/**' --ignore '**/*.generated.ts,**/fixtures/**'
+repo-mapper . --exclude packages/legacy
+```
+
+The filtering order is extensions, `include`, `ignore`, then `only`/`skip`.
+Exclusions win: an included file is still removed when it matches `ignore` or
+`skip`. An `--exclude` value containing `/` matches that exact directory from
+the repository root and its descendants; a plain name keeps the previous
+behavior of matching that name in any path segment.
+
+### Committed configuration
+
+Filtering defaults can be committed in the root `package.json` under
+`repoMapper`, in `repo-mapper.config.json`, or both:
+
+```json
+{
+  "extensions": [".ts", ".tsx"],
+  "skip": ["test", "config"],
+  "include": ["src/**", "packages/*/src/**"],
+  "ignore": ["**/*.generated.ts"],
+  "exclude": ["packages/legacy"]
+}
+```
+
+Precedence is defaults, `package.json#repoMapper`,
+`repo-mapper.config.json`, then explicit library options or CLI flags. Arrays
+replace the same lower-precedence option rather than being appended. Repository
+discovery and `.gitignore` handling run before source filtering, so package,
+TypeScript, and Jest configuration discovery still sees config files omitted
+from the diagram.
 
 ## Library
 
 ```js
 import { mapRepository, render } from '@miikaniemela/repo-mapper';
 
-const { graph, tree } = mapRepository('path/to/repo', { maxDepth: 3 });
+const { graph, tree } = mapRepository('path/to/repo', {
+  maxDepth: 3,
+  only: ['code'],
+  include: ['src/**'],
+  ignore: ['**/*.generated.ts'],
+});
 const svg = render(tree, { format: 'svg', type: 'cascaded', width: 1600, height: 1000 });
 ```
 
@@ -76,10 +133,14 @@ The pipeline is also available step by step:
 | `extractImports(source)`, `resolveImport(from, specifier, fileSet, packages)` | import analysis helpers |
 | `listRepositoryFiles(root, options)`, `scanRepository(root, options)` | repository scanning helpers |
 
-Options shared by `mapRepository` / `buildDependencyGraph`: `extensions`,
-`exclude`, `useGit` (default `true`), and ordered
+Filtering options shared by `mapRepository`, `buildDependencyGraph`, and
+`scanRepository` are `extensions`, `exclude`, `include`, `ignore`, `only`, and
+`skip`. `mapRepository` / `buildDependencyGraph` also accept `useGit` (default
+`true`) and ordered
 `aliases: [{ find, replacement }]`. Alias rules support exact matches or one
 `*` on each side. Relative replacements are resolved from the repository root.
+`FILE_CATEGORIES` and `fileCategory(path)` are exported for consumers that need
+the built-in category names or classification.
 
 `buildDependencyGraph()` also returns `warnings`, an array of structured
 `{ code, message, path? }` configuration warnings. The library does not write
