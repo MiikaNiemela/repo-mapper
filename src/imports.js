@@ -1,11 +1,41 @@
 import path from 'node:path';
 
-const COMMENTS_AND_STRINGS =
-  /("(?:\\.|[^"\\\n])*"|'(?:\\.|[^'\\\n])*'|`(?:\\.|[^`\\])*`)|\/\*[\s\S]*?\*\/|\/\/[^\n]*/g;
+/**
+ * Removes comments from a JavaScript / TypeScript source while keeping string
+ * literals intact (single pass, linear time).
+ */
+function stripComments(source) {
+  let out = '';
+  let i = 0;
+  const { length } = source;
+  while (i < length) {
+    const char = source[i];
+    const next = source[i + 1];
+    if (char === '/' && next === '/') {
+      const end = source.indexOf('\n', i);
+      i = end === -1 ? length : end;
+    } else if (char === '/' && next === '*') {
+      const end = source.indexOf('*/', i + 2);
+      out += ' ';
+      i = end === -1 ? length : end + 2;
+    } else if (char === '"' || char === "'" || char === '`') {
+      let j = i + 1;
+      while (j < length && source[j] !== char && !(char !== '`' && source[j] === '\n')) {
+        j += source[j] === '\\' ? 2 : 1;
+      }
+      out += source.slice(i, j + 1);
+      i = j + 1;
+    } else {
+      out += char;
+      i += 1;
+    }
+  }
+  return out;
+}
 
 const IMPORT_PATTERNS = [
   // import x from 'y'; import { a } from 'y'; import 'y'; export * from 'y'; import type { T } from 'y'
-  /(?:^|[^\w$.])(?:import|export)\s+(?:type\s+)?(?:[^'"`;]*?\s*\bfrom\s*)?(['"])([^'"\n]+)\1/g,
+  /(?:^|[^\w$.])(?:import|export)\b(?:[^'"`;]*?\bfrom)?\s*(['"])([^'"\n]+)\1/g,
   // require('y'), import x = require('y')
   /(?:^|[^\w$.])require\s*\(\s*(['"])([^'"\n]+)\1\s*\)/g,
   // dynamic import('y')
@@ -19,7 +49,7 @@ const IMPORT_PATTERNS = [
  * @returns {string[]} unique specifiers in order of appearance
  */
 export function extractImports(source) {
-  const code = source.replace(COMMENTS_AND_STRINGS, (match, str) => str ?? '');
+  const code = stripComments(source);
   const found = [];
   for (const pattern of IMPORT_PATTERNS) {
     for (const match of code.matchAll(pattern)) {
@@ -68,7 +98,8 @@ function splitPackageSpecifier(specifier) {
  * @returns {string | null}
  */
 export function resolveImport(fromFile, specifier, fileSet, packages = new Map()) {
-  const clean = specifier.replace(/[?#].*$/, '');
+  const cut = specifier.search(/[?#]/);
+  const clean = cut === -1 ? specifier : specifier.slice(0, cut);
   if (!clean) return null;
   if (clean.startsWith('.')) {
     return resolvePath(path.posix.join(path.posix.dirname(fromFile), clean), fileSet);
