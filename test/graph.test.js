@@ -66,6 +66,7 @@ test('built-in categories classify framework and tool files', () => {
     'src/app.spec.tsx': 'test',
     'src/__tests__/app.js': 'test',
     'tests/integration.js': 'test',
+    'tests/jest.config.js': 'config',
     'cypress/e2e/login.ts': 'test',
     'jest.config.js': 'config',
     'vitest.config.ts': 'config',
@@ -128,8 +129,25 @@ test('include and ignore globs match repo-relative paths with exclusions winning
   ]);
 });
 
+test('filtering a resolved target does not redirect its import to another file', () => {
+  const root = createFixture({
+    'src/main.ts': "import './foo.js';\n",
+    'src/foo.js': 'export {};\n',
+    'src/foo.ts': 'export {};\n',
+  });
+  const graph = buildDependencyGraph(root, {
+    useGit: false,
+    ignore: ['src/foo.js'],
+  });
+  const main = graph.files.find((file) => file.path === 'src/main.ts');
+  assert.deepEqual(main.imports, []);
+  assert.deepEqual(main.externalImports, ['./foo.js']);
+  assert.deepEqual(graph.links, []);
+});
+
 test('exclude supports exact relative directories and legacy segment names', () => {
   const root = createFixture({
+    'src/index.ts': 'export {};\n',
     'packages/a/lib/index.ts': 'export {};\n',
     'packages/b/lib/index.ts': 'export {};\n',
     'packages/b/src/index.ts': 'export {};\n',
@@ -140,11 +158,17 @@ test('exclude supports exact relative directories and legacy segment names', () 
   }), [
     'packages/b/lib/index.ts',
     'packages/b/src/index.ts',
+    'src/index.ts',
   ]);
   assert.deepEqual(listRepositoryFiles(root, {
     useGit: false,
     exclude: ['lib'],
-  }), ['packages/b/src/index.ts']);
+  }), ['packages/b/src/index.ts', 'src/index.ts']);
+  for (const exact of ['src/', './src']) {
+    const files = listRepositoryFiles(root, { useGit: false, exclude: [exact] });
+    assert.ok(!files.includes('src/index.ts'), exact);
+    assert.ok(files.includes('packages/b/src/index.ts'), exact);
+  }
 });
 
 test('filter config sources and explicit options follow precedence', () => {
@@ -203,6 +227,16 @@ test('invalid filtering options produce structured warnings', () => {
     ['invalid-exclude', 'invalid-filter-option', 'unknown-file-category'],
   );
   assert.deepEqual(graph.files.map((file) => file.path), ['src/app.ts']);
+});
+
+test('an unknown only category does not disable the allowlist', () => {
+  const root = createFixture({
+    'src/app.ts': 'export {};\n',
+    'src/app.test.ts': 'export {};\n',
+  });
+  const graph = buildDependencyGraph(root, { useGit: false, only: ['mystery'] });
+  assert.deepEqual(graph.files, []);
+  assert.deepEqual(graph.warnings.map((warning) => warning.code), ['unknown-file-category']);
 });
 
 test('local packages resolve conditional root exports', () => {
