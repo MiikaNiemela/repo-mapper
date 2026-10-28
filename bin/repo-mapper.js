@@ -16,6 +16,7 @@ Options:
   -H, --height <px>       height of the treemap (default: 800)
   -d, --depth <n>         collapse modules deeper than n directory levels
   -e, --ext <list>        comma separated file extensions to map (default: JS/TS)
+      --alias <from=to>   map an import alias to a repository path (repeatable)
   -x, --exclude <list>    comma separated directory names to exclude (node_modules is always excluded)
       --links             draw the connections between components (always on for html)
       --no-git            do not use git to list files (walk the file system instead)
@@ -39,6 +40,7 @@ try {
       height: { type: 'string', short: 'H' },
       depth: { type: 'string', short: 'd' },
       ext: { type: 'string', short: 'e' },
+      alias: { type: 'string', multiple: true },
       exclude: { type: 'string', short: 'x' },
       links: { type: 'boolean' },
       'no-git': { type: 'boolean' },
@@ -72,12 +74,21 @@ if (!OUTPUT_FORMATS.includes(format)) fail(`unknown format "${format}"`);
 if (!TREEMAP_TYPES.includes(values.type)) fail(`unknown treemap type "${values.type}"`);
 
 const extensions = list(values.ext)?.map((e) => (e.startsWith('.') ? e : `.${e}`));
-const { tree } = mapRepository(positionals[0] ?? '.', {
+const aliases = values.alias?.map((value) => {
+  const separator = value.indexOf('=');
+  if (separator <= 0 || separator === value.length - 1) fail('--alias must use the form find=replacement');
+  return { find: value.slice(0, separator), replacement: value.slice(separator + 1) };
+});
+const { graph, tree } = mapRepository(positionals[0] ?? '.', {
   extensions,
+  aliases,
   exclude: list(values.exclude),
   useGit: !values['no-git'],
   maxDepth: positive(values.depth, 'depth'),
 });
+for (const warning of graph.warnings) {
+  process.stderr.write(`repo-mapper: warning [${warning.code}] ${warning.message}\n`);
+}
 
 const output = render(tree, {
   format,
