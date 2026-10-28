@@ -66,6 +66,7 @@ test('cli accepts repeatable aliases and prints config warnings to stderr', () =
     'src/one.js': 'export {};\n',
     'src/two/value.js': 'export {};\n',
   });
+
   const result = spawnSync(process.execPath, [
     BIN,
     root,
@@ -84,6 +85,30 @@ test('cli accepts repeatable aliases and prints config warnings to stderr', () =
     ['src/main.js', 'src/two/value.js'],
   ]);
   assert.match(result.stderr, /warning \[invalid-config\]/);
+});
+
+test('cli filtering flags override committed configuration', () => {
+  const root = createFixture({
+    'repo-mapper.config.json': JSON.stringify({ only: ['test'] }),
+    'src/app.ts': 'export {};\n',
+    'src/app.test.ts': 'export {};\n',
+    'src/fixture.ts': 'export {};\n',
+  });
+  const result = spawnSync(process.execPath, [
+    BIN,
+    root,
+    '--format',
+    'json',
+    '--no-git',
+    '--only',
+    'code',
+    '--ignore',
+    '**/fixture.ts',
+  ], { encoding: 'utf8' });
+  assert.equal(result.status, 0, result.stderr);
+  const tree = JSON.parse(result.stdout);
+  assert.deepEqual(tree.children.map((child) => child.id), ['src']);
+  assert.deepEqual(tree.children[0].children.map((child) => child.id), ['src/app.ts']);
 });
 
 test('renderSvg handles a large number of links', () => {

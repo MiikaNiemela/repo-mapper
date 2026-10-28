@@ -7,6 +7,7 @@ import { buildModuleTree } from './tree.js';
 // the pipeline (scan -> imports -> graph -> tree -> layout -> render) and its
 // defaults can be used and customised on their own. They are not used in this file.
 export { buildDependencyGraph } from './graph.js';
+export { FILE_CATEGORIES, fileCategory } from './filtering.js';
 export { extractImports, resolveImport } from './imports.js';
 export { computeTreemap, TREEMAP_TYPES } from './layout.js';
 export { renderHtml, renderSvg } from './render.js';
@@ -31,7 +32,17 @@ export const OUTPUT_FORMATS = Object.freeze(['svg', 'html', 'json']);
  * resolves the connections between them and builds the module hierarchy.
  *
  * @param {string} root repository directory
- * @param {{ extensions?: string[], useGit?: boolean, exclude?: string[], maxDepth?: number, aliases?: { find: string, replacement: string }[] }} [options]
+ * @param {{
+ *   extensions?: string[],
+ *   useGit?: boolean,
+ *   exclude?: string[],
+ *   include?: string[],
+ *   ignore?: string[],
+ *   only?: string[],
+ *   skip?: string[],
+ *   maxDepth?: number,
+ *   aliases?: { find: string, replacement: string }[],
+ * }} [options]
  * @returns {{ graph: ReturnType<typeof buildDependencyGraph>, tree: object }}
  */
 export function mapRepository(root, options = {}) {

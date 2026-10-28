@@ -3,7 +3,12 @@ import { execFileSync } from 'node:child_process';
 import { symlinkSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { test } from 'node:test';
-import { buildDependencyGraph, listRepositoryFiles } from '../src/index.js';
+import {
+  buildDependencyGraph,
+  fileCategory,
+  listRepositoryFiles,
+  scanRepository,
+} from '../src/index.js';
 import { SAMPLE_APP, createFixture } from './helpers.js';
 
 const hasGit = (() => {
@@ -52,6 +57,152 @@ test('extensions option selects the mapped files', () => {
   const graph = buildDependencyGraph(root, { useGit: false, extensions: ['.md'] });
   assert.deepEqual(graph.files.map((f) => f.path), ['docs/readme.md']);
   assert.deepEqual(graph.links, []);
+});
+
+test('built-in categories classify framework and tool files', () => {
+  const cases = {
+    'src/app.ts': 'code',
+    'src/app.test.ts': 'test',
+    'src/app.spec.tsx': 'test',
+    'src/__tests__/app.js': 'test',
+    'tests/integration.js': 'test',
+    'cypress/e2e/login.ts': 'test',
+    'jest.config.js': 'config',
+    'vitest.config.ts': 'config',
+    'eslint.config.js': 'config',
+    '.prettierrc.json': 'config',
+    'tsconfig.build.json': 'config',
+    'vite.config.ts': 'config',
+    'webpack.config.js': 'config',
+    'rollup.config.mjs': 'config',
+    'babel.config.cjs': 'config',
+    'next.config.js': 'config',
+    'src/index.d.ts': 'types',
+    'src/button.stories.tsx': 'story',
+    '.storybook/main.ts': 'story',
+    'src/client.generated.ts': 'generated',
+  };
+  for (const [file, expected] of Object.entries(cases)) {
+    assert.equal(fileCategory(file), expected, file);
+  }
+});
+
+test('category filters select mapped fixture files', () => {
+  const root = createFixture({
+    'src/app.ts': 'export {};\n',
+    'src/app.test.ts': 'export {};\n',
+    'src/types.d.ts': 'export {};\n',
+    'src/button.stories.ts': 'export {};\n',
+    'src/api.generated.ts': 'export {};\n',
+    'vite.config.ts': 'export {};\n',
+  });
+  const code = buildDependencyGraph(root, { useGit: false, only: ['code'] });
+  assert.deepEqual(code.files.map((file) => file.path), ['src/app.ts']);
+  const withoutTestsAndConfig = buildDependencyGraph(root, {
+    useGit: false,
+    skip: ['test', 'config'],
+  });
+  assert.deepEqual(withoutTestsAndConfig.files.map((file) => file.path), [
+    'src/api.generated.ts',
+    'src/app.ts',
+    'src/button.stories.ts',
+    'src/types.d.ts',
+  ]);
+});
+
+test('include and ignore globs match repo-relative paths with exclusions winning', () => {
+  const root = createFixture({
+    'src/app.ts': 'export {};\n',
+    'src/app.test.ts': 'export {};\n',
+    'src/fixtures/data.ts': 'export {};\n',
+    'packages/a/src/index.ts': 'export {};\n',
+  });
+  const graph = buildDependencyGraph(root, {
+    useGit: false,
+    include: ['src/**', 'packages/*/src/**'],
+    ignore: ['**/*.test.ts', '**/fixtures/**'],
+  });
+  assert.deepEqual(graph.files.map((file) => file.path), [
+    'packages/a/src/index.ts',
+    'src/app.ts',
+  ]);
+});
+
+test('exclude supports exact relative directories and legacy segment names', () => {
+  const root = createFixture({
+    'packages/a/lib/index.ts': 'export {};\n',
+    'packages/b/lib/index.ts': 'export {};\n',
+    'packages/b/src/index.ts': 'export {};\n',
+  });
+  assert.deepEqual(listRepositoryFiles(root, {
+    useGit: false,
+    exclude: ['packages/a/lib'],
+  }), [
+    'packages/b/lib/index.ts',
+    'packages/b/src/index.ts',
+  ]);
+  assert.deepEqual(listRepositoryFiles(root, {
+    useGit: false,
+    exclude: ['lib'],
+  }), ['packages/b/src/index.ts']);
+});
+
+test('filter config sources and explicit options follow precedence', () => {
+  const root = createFixture({
+    'package.json': JSON.stringify({ repoMapper: { include: ['from-package/**'] } }),
+    'repo-mapper.config.json': JSON.stringify({ include: ['from-config/**'] }),
+    'from-package/a.ts': 'export {};\n',
+    'from-config/b.ts': 'export {};\n',
+    'from-options/c.ts': 'export {};\n',
+  });
+  assert.deepEqual(
+    scanRepository(root, { useGit: false }).files.map((file) => file.path),
+    ['from-config/b.ts'],
+  );
+  assert.deepEqual(
+    scanRepository(root, { useGit: false, include: ['from-options/**'] }).files.map((file) => file.path),
+    ['from-options/c.ts'],
+  );
+});
+
+test('filtering mapped files preserves package and project config discovery', () => {
+  const root = createFixture({
+    'package.json': JSON.stringify({
+      name: 'app',
+      repoMapper: { skip: ['config'] },
+    }),
+    'tsconfig.json': JSON.stringify({
+      compilerOptions: { baseUrl: '.', paths: { '@/*': ['src/*'] } },
+    }),
+    'packages/local/package.json': JSON.stringify({
+      name: 'local',
+      main: 'src/index.ts',
+    }),
+    'packages/local/src/index.ts': 'export {};\n',
+    'src/value.ts': 'export {};\n',
+    'src/main.ts': "import '@/value';\nimport 'local';\n",
+  });
+  const graph = buildDependencyGraph(root, { useGit: false });
+  assert.deepEqual(graph.files.find((file) => file.path === 'src/main.ts').imports, [
+    'src/value.ts',
+    'packages/local/src/index.ts',
+  ]);
+  assert.ok(!graph.files.some((file) => file.path.endsWith('.json')));
+});
+
+test('invalid filtering options produce structured warnings', () => {
+  const root = createFixture({
+    'package.json': JSON.stringify({
+      repoMapper: { skip: ['mystery'], include: 'src/**', exclude: ['../outside'] },
+    }),
+    'src/app.ts': 'export {};\n',
+  });
+  const graph = buildDependencyGraph(root, { useGit: false });
+  assert.deepEqual(
+    graph.warnings.map((warning) => warning.code).sort(),
+    ['invalid-exclude', 'invalid-filter-option', 'unknown-file-category'],
+  );
+  assert.deepEqual(graph.files.map((file) => file.path), ['src/app.ts']);
 });
 
 test('local packages resolve conditional root exports', () => {

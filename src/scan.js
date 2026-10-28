@@ -1,6 +1,12 @@
 import { execFileSync } from 'node:child_process';
 import { lstatSync, readdirSync, readFileSync } from 'node:fs';
 import path from 'node:path';
+import {
+  createFileFilter,
+  isDirectoryExcluded,
+  resolveFilterOptions,
+  splitDirectoryExclusions,
+} from './filtering.js';
 
 /** Directories that never contain code implemented in the repository itself. */
 export const DEFAULT_EXCLUDED_DIRS = Object.freeze([
@@ -23,10 +29,6 @@ export const DEFAULT_EXTENSIONS = SCRIPT_EXTENSIONS;
 
 const toPosix = (p) => p.split(path.sep).join('/');
 
-function isExcluded(relPath, excludedDirs) {
-  return relPath.split('/').some((segment) => excludedDirs.has(segment));
-}
-
 function listWithGit(root) {
   const out = execFileSync(
     'git',
@@ -36,14 +38,16 @@ function listWithGit(root) {
   return out.split('\0').filter(Boolean);
 }
 
-function listWithWalk(root, excludedDirs) {
+function listWithWalk(root, exclusions) {
   const files = [];
   const walk = (dir) => {
     for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      const absolute = path.join(dir, entry.name);
+      const relative = toPosix(path.relative(root, absolute));
       if (entry.isDirectory()) {
-        if (!excludedDirs.has(entry.name)) walk(path.join(dir, entry.name));
+        if (!isDirectoryExcluded(relative, exclusions)) walk(absolute);
       } else if (entry.isFile()) {
-        files.push(toPosix(path.relative(root, path.join(dir, entry.name))));
+        files.push(relative);
       }
     }
   };
@@ -63,7 +67,7 @@ function listWithWalk(root, excludedDirs) {
  */
 export function listRepositoryFiles(root, options = {}) {
   const { useGit = true, exclude = [] } = options;
-  const excludedDirs = new Set([...DEFAULT_EXCLUDED_DIRS, ...exclude]);
+  const exclusions = splitDirectoryExclusions([...DEFAULT_EXCLUDED_DIRS, ...exclude]);
   let files;
   if (useGit) {
     try {
@@ -72,9 +76,9 @@ export function listRepositoryFiles(root, options = {}) {
       files = undefined;
     }
   }
-  if (!files) files = listWithWalk(root, excludedDirs);
+  if (!files) files = listWithWalk(root, exclusions);
   return [...new Set(files.map(toPosix))]
-    .filter((f) => !isExcluded(f, excludedDirs))
+    .filter((f) => !isDirectoryExcluded(f, exclusions))
     .filter((f) => {
       try {
         return lstatSync(path.join(root, f)).isFile();
@@ -97,19 +101,31 @@ export function countLines(source) {
  * packages implemented inside it.
  *
  * @param {string} root
- * @param {{ extensions?: string[], useGit?: boolean, exclude?: string[] }} [options]
+ * @param {{
+ *   extensions?: string[],
+ *   useGit?: boolean,
+ *   exclude?: string[],
+ *   include?: string[],
+ *   ignore?: string[],
+ *   only?: string[],
+ *   skip?: string[],
+ * }} [options]
  * @returns {{
  *   files: { path: string, lines: number, source: string }[],
  *   packages: Map<string, { dir: string, entries: string[], imports?: object, jest?: object, aliases?: object[] }>,
  *   packageScopes: { dir: string, imports?: object, jest?: object, aliases?: object[] }[],
  *   repositoryFiles: string[],
+ *   warnings: { code: string, message: string, path?: string }[],
  * }}
  */
 export function scanRepository(root, options = {}) {
-  const extensions = new Set((options.extensions ?? DEFAULT_EXTENSIONS).map((e) => e.toLowerCase()));
-  const all = listRepositoryFiles(root, options);
+  const resolved = resolveFilterOptions(root, options);
+  const extensions = new Set((resolved.options.extensions ?? DEFAULT_EXTENSIONS).map((e) => e.toLowerCase()));
+  const all = listRepositoryFiles(root, resolved.options);
+  const selected = createFileFilter(resolved.options, resolved.warnings);
   const files = all
     .filter((f) => extensions.has(path.posix.extname(f).toLowerCase()))
+    .filter(selected)
     .map((f) => {
       const source = readFileSync(path.join(root, f), 'utf8');
       return { path: f, lines: countLines(source), source };
@@ -119,6 +135,7 @@ export function scanRepository(root, options = {}) {
     packages: findLocalPackages(root, all),
     packageScopes: findPackageScopes(root, all),
     repositoryFiles: all,
+    warnings: resolved.warnings,
   };
 }
 

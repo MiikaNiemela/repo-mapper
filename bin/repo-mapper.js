@@ -2,7 +2,13 @@
 import { writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { parseArgs } from 'node:util';
-import { OUTPUT_FORMATS, TREEMAP_TYPES, mapRepository, render } from '../src/index.js';
+import {
+  FILE_CATEGORIES,
+  OUTPUT_FORMATS,
+  TREEMAP_TYPES,
+  mapRepository,
+  render,
+} from '../src/index.js';
 
 const USAGE = `Usage: repo-mapper [directory] [options]
 
@@ -17,7 +23,11 @@ Options:
   -d, --depth <n>         collapse modules deeper than n directory levels
   -e, --ext <list>        comma separated file extensions to map (default: JS/TS)
       --alias <from=to>   map an import alias to a repository path (repeatable)
-  -x, --exclude <list>    comma separated directory names to exclude (node_modules is always excluded)
+      --only <list>       include only file categories: ${FILE_CATEGORIES.join(', ')}
+      --skip <list>       exclude file categories
+      --include <list>    include repo-relative file globs
+      --ignore <list>     exclude repo-relative file globs
+  -x, --exclude <list>    directory names or repo-relative directory paths to exclude
       --links             draw the connections between components (always on for html)
       --no-git            do not use git to list files (walk the file system instead)
   -h, --help              show this help
@@ -41,6 +51,10 @@ try {
       depth: { type: 'string', short: 'd' },
       ext: { type: 'string', short: 'e' },
       alias: { type: 'string', multiple: true },
+      only: { type: 'string' },
+      skip: { type: 'string' },
+      include: { type: 'string' },
+      ignore: { type: 'string' },
       exclude: { type: 'string', short: 'x' },
       links: { type: 'boolean' },
       'no-git': { type: 'boolean' },
@@ -82,6 +96,10 @@ const aliases = values.alias?.map((value) => {
 const { graph, tree } = mapRepository(positionals[0] ?? '.', {
   extensions,
   aliases,
+  only: list(values.only),
+  skip: list(values.skip),
+  include: list(values.include),
+  ignore: list(values.ignore),
   exclude: list(values.exclude),
   useGit: !values['no-git'],
   maxDepth: positive(values.depth, 'depth'),
