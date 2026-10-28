@@ -18,12 +18,6 @@ const CATEGORY_PATTERNS = Object.freeze({
     '**/*.gen.*',
     '**/generated/**',
   ],
-  test: [
-    '**/*.{test,spec}.{js,mjs,cjs,jsx,ts,mts,cts,tsx}',
-    '**/__tests__/**',
-    '**/__mocks__/**',
-    '**/{test,tests,e2e,cypress}/**',
-  ],
   story: [
     '**/*.stories.*',
     '**/.storybook/**',
@@ -38,6 +32,12 @@ const CATEGORY_PATTERNS = Object.freeze({
     '**/.{eslint,prettier}rc.*',
     '**/{tsconfig,jsconfig}*.json',
     '**/{vite,webpack,rollup,babel,next}.config.*',
+  ],
+  test: [
+    '**/*.{test,spec}.{js,mjs,cjs,jsx,ts,mts,cts,tsx}',
+    '**/__tests__/**',
+    '**/__mocks__/**',
+    '**/{test,tests,e2e,cypress}/**',
   ],
 });
 
@@ -90,7 +90,7 @@ function validateOptions(value, source, warnings) {
       result[key] = value[key].filter((category) => {
         if (FILE_CATEGORIES.includes(category)) return true;
         addWarning(warnings, 'unknown-file-category', `Unknown file category "${category}" in ${source}`, source);
-        return false;
+        return key === 'only';
       });
     } else if (key === 'exclude') {
       result[key] = value[key].filter((directory) => {
@@ -165,9 +165,10 @@ export function splitDirectoryExclusions(exclude = []) {
   const names = new Set();
   const paths = new Set();
   for (const value of exclude) {
+    const isPath = typeof value === 'string' && (value.includes('/') || value.includes('\\'));
     const normalized = normalizeDirectory(value);
     if (!normalized) continue;
-    if (normalized.includes('/')) paths.add(normalized);
+    if (isPath) paths.add(normalized);
     else names.add(normalized);
   }
   return { names, paths };

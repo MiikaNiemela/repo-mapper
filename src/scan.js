@@ -115,6 +115,7 @@ export function countLines(source) {
  *   packages: Map<string, { dir: string, entries: string[], imports?: object, jest?: object, aliases?: object[] }>,
  *   packageScopes: { dir: string, imports?: object, jest?: object, aliases?: object[] }[],
  *   repositoryFiles: string[],
+ *   resolutionFiles: string[],
  *   warnings: { code: string, message: string, path?: string }[],
  * }}
  */
@@ -123,8 +124,8 @@ export function scanRepository(root, options = {}) {
   const extensions = new Set((resolved.options.extensions ?? DEFAULT_EXTENSIONS).map((e) => e.toLowerCase()));
   const all = listRepositoryFiles(root, resolved.options);
   const selected = createFileFilter(resolved.options, resolved.warnings);
-  const files = all
-    .filter((f) => extensions.has(path.posix.extname(f).toLowerCase()))
+  const resolutionFiles = all.filter((f) => extensions.has(path.posix.extname(f).toLowerCase()));
+  const files = resolutionFiles
     .filter(selected)
     .map((f) => {
       const source = readFileSync(path.join(root, f), 'utf8');
@@ -135,6 +136,7 @@ export function scanRepository(root, options = {}) {
     packages: findLocalPackages(root, all),
     packageScopes: findPackageScopes(root, all),
     repositoryFiles: all,
+    resolutionFiles,
     warnings: resolved.warnings,
   };
 }

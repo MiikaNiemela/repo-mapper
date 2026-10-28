@@ -61,9 +61,11 @@ export function buildDependencyGraph(root, options = {}) {
     packages,
     packageScopes,
     repositoryFiles,
+    resolutionFiles,
     warnings: filterWarnings,
   } = scanRepository(absoluteRoot, options);
   const fileSet = new Set(scanned.map((f) => f.path));
+  const resolutionFileSet = new Set(resolutionFiles);
   const projects = loadProjectConfigs(absoluteRoot, repositoryFiles);
   const warnings = [
     ...filterWarnings,
@@ -85,8 +87,8 @@ export function buildDependencyGraph(root, options = {}) {
         packageScope,
       };
       for (const specifier of analyser.extractImports(source)) {
-        const target = analyser.resolveImport(file, specifier, fileSet, packages, context);
-        if (target === null) externalImports.add(specifier);
+        const target = analyser.resolveImport(file, specifier, resolutionFileSet, packages, context);
+        if (target === null || !fileSet.has(target)) externalImports.add(specifier);
         else if (target !== file) imports.add(target);
       }
     }
