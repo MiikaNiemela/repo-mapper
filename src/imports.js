@@ -1,63 +1,181 @@
 import path from 'node:path';
 
+// Keywords after which a `/` starts a regular expression literal rather than a division.
+const REGEX_PRECEDING_KEYWORDS = new Set([
+  'return', 'typeof', 'instanceof', 'in', 'of', 'new', 'delete', 'void', 'throw', 'case', 'do',
+  'else', 'yield', 'await', 'export', 'import', 'extends',
+]);
+
+const isIdentifierStart = (c) => /[A-Za-z_$#\u0080-\uffff]/.test(c);
+const isIdentifierPart = (c) => /[\w$\u0080-\uffff]/.test(c);
+
 /**
- * Removes comments from a JavaScript / TypeScript source while keeping string
- * literals intact (single pass, linear time).
+ * Splits a JavaScript / TypeScript source into tokens in a single linear
+ * pass. Comments, regular expression literals and template literal text are
+ * skipped; string literals are kept as `string` tokens so that only import
+ * forms appearing in executable code are recognised.
+ *
+ * @param {string} source
+ * @returns {{ type: 'name' | 'punct' | 'string' | 'value', value: string }[]}
  */
-function stripComments(source) {
-  let out = '';
-  let i = 0;
+function tokenize(source) {
+  const tokens = [];
   const { length } = source;
+  const templateDepths = [];
+  let braceDepth = 0;
+  let i = 0;
+
+  const regexAllowed = () => {
+    const prev = tokens[tokens.length - 1];
+    if (!prev) return true;
+    if (prev.type === 'punct') return prev.value !== ')' && prev.value !== ']';
+    if (prev.type === 'name') return REGEX_PRECEDING_KEYWORDS.has(prev.value);
+    return false;
+  };
+
+  // Skips template literal text starting at `j`; returns the index after the
+  // closing backtick, or after `${` when entering an embedded expression.
+  const skipTemplate = (j) => {
+    while (j < length) {
+      const c = source[j];
+      if (c === '\\') j += 2;
+      else if (c === '`') return j + 1;
+      else if (c === '$' && source[j + 1] === '{') {
+        templateDepths.push(braceDepth);
+        braceDepth += 1;
+        return j + 2;
+      } else j += 1;
+    }
+    return length;
+  };
+
   while (i < length) {
-    const char = source[i];
+    const c = source[i];
     const next = source[i + 1];
-    if (char === '/' && next === '/') {
+    if (c === '/' && next === '/') {
       const end = source.indexOf('\n', i);
       i = end === -1 ? length : end;
-    } else if (char === '/' && next === '*') {
+    } else if (c === '/' && next === '*') {
       const end = source.indexOf('*/', i + 2);
-      out += ' ';
       i = end === -1 ? length : end + 2;
-    } else if (char === '"' || char === "'" || char === '`') {
+    } else if (/\s/.test(c)) {
+      i += 1;
+    } else if (c === '"' || c === "'") {
       let j = i + 1;
-      while (j < length && source[j] !== char && !(char !== '`' && source[j] === '\n')) {
-        j += source[j] === '\\' ? 2 : 1;
-      }
-      out += source.slice(i, j + 1);
+      while (j < length && source[j] !== c && source[j] !== '\n') j += source[j] === '\\' ? 2 : 1;
+      tokens.push({ type: 'string', value: source.slice(i + 1, Math.min(j, length)) });
       i = j + 1;
+    } else if (c === '`') {
+      i = skipTemplate(i + 1);
+      tokens.push({ type: 'value', value: '`' });
+    } else if (c === '{') {
+      braceDepth += 1;
+      tokens.push({ type: 'punct', value: c });
+      i += 1;
+    } else if (c === '}') {
+      braceDepth -= 1;
+      if (templateDepths.length && templateDepths[templateDepths.length - 1] === braceDepth) {
+        templateDepths.pop();
+        i = skipTemplate(i + 1);
+        tokens.push({ type: 'value', value: '`' });
+      } else {
+        tokens.push({ type: 'punct', value: c });
+        i += 1;
+      }
+    } else if (c === '/' && regexAllowed()) {
+      let j = i + 1;
+      let inClass = false;
+      while (j < length && source[j] !== '\n' && (inClass || source[j] !== '/')) {
+        if (source[j] === '\\') j += 1;
+        else if (source[j] === '[') inClass = true;
+        else if (source[j] === ']') inClass = false;
+        j += 1;
+      }
+      if (source[j] === '/') {
+        j += 1;
+        while (j < length && isIdentifierPart(source[j])) j += 1;
+        tokens.push({ type: 'value', value: source.slice(i, j) });
+        i = j;
+      } else {
+        tokens.push({ type: 'punct', value: c });
+        i += 1;
+      }
+    } else if (isIdentifierStart(c)) {
+      let j = i + 1;
+      while (j < length && isIdentifierPart(source[j])) j += 1;
+      tokens.push({ type: 'name', value: source.slice(i, j) });
+      i = j;
+    } else if (/\d/.test(c) || (c === '.' && /\d/.test(next ?? ''))) {
+      let j = i + 1;
+      while (j < length && /[\w.]/.test(source[j])) j += 1;
+      tokens.push({ type: 'value', value: source.slice(i, j) });
+      i = j;
+    } else if (c === '.' && next === '.' && source[i + 2] === '.') {
+      tokens.push({ type: 'punct', value: '...' });
+      i += 3;
     } else {
-      out += char;
+      tokens.push({ type: 'punct', value: c });
       i += 1;
     }
   }
-  return out;
+  return tokens;
 }
 
-const IMPORT_PATTERNS = [
-  // import x from 'y'; import { a } from 'y'; import 'y'; export * from 'y'; import type { T } from 'y'
-  /(?:^|[^\w$.])(?:import|export)\b(?:[^'"`;]*?\bfrom)?\s*(['"])([^'"\n]+)\1/g,
-  // require('y'), import x = require('y')
-  /(?:^|[^\w$.])require\s*\(\s*(['"])([^'"\n]+)\1\s*\)/g,
-  // dynamic import('y')
-  /(?:^|[^\w$.])import\s*\(\s*(['"])([^'"\n]+)\1\s*\)/g,
-];
+const is = (token, type, value) => token !== undefined && token.type === type && (value === undefined || token.value === value);
 
 /**
  * Extracts the module specifiers imported by a JavaScript / TypeScript source.
+ *
+ * Recognises `import ... from 'y'`, `import 'y'`, `export ... from 'y'`,
+ * `require('y')`, `import x = require('y')` and dynamic `import('y')`.
  *
  * @param {string} source
  * @returns {string[]} unique specifiers in order of appearance
  */
 export function extractImports(source) {
-  const code = stripComments(source);
+  const tokens = tokenize(source);
   const found = [];
-  for (const pattern of IMPORT_PATTERNS) {
-    for (const match of code.matchAll(pattern)) {
-      found.push({ index: match.index, specifier: match[2] });
+  let i = 0;
+  while (i < tokens.length) {
+    const token = tokens[i];
+    const afterDot = is(tokens[i - 1], 'punct', '.');
+    if (token.type !== 'name' || afterDot) {
+      i += 1;
+    } else if (
+      (token.value === 'require' || token.value === 'import') &&
+      is(tokens[i + 1], 'punct', '(') &&
+      is(tokens[i + 2], 'string') &&
+      (is(tokens[i + 3], 'punct', ')') || is(tokens[i + 3], 'punct', ','))
+    ) {
+      found.push(tokens[i + 2].value);
+      i += 3;
+    } else if (token.value === 'import' && is(tokens[i + 1], 'string')) {
+      found.push(tokens[i + 1].value);
+      i += 2;
+    } else if (token.value === 'import' || token.value === 'export') {
+      // Bounded declaration scan: the main loop resumes where the scan stops,
+      // so every token is visited a constant number of times.
+      let j = i + 1;
+      while (j < tokens.length) {
+        const t = tokens[j];
+        if (is(t, 'name', 'from') && is(tokens[j + 1], 'string')) {
+          found.push(tokens[j + 1].value);
+          j += 2;
+          break;
+        }
+        const continues =
+          (t.type === 'name' && t.value !== 'import' && t.value !== 'export') ||
+          t.type === 'string' ||
+          (t.type === 'punct' && (t.value === '{' || t.value === '}' || t.value === ',' || t.value === '*'));
+        if (!continues) break;
+        j += 1;
+      }
+      i = j;
+    } else {
+      i += 1;
     }
   }
-  found.sort((a, b) => a.index - b.index);
-  return [...new Set(found.map((f) => f.specifier))];
+  return [...new Set(found)];
 }
 
 const RESOLVE_EXTENSIONS = ['.ts', '.tsx', '.mts', '.cts', '.js', '.jsx', '.mjs', '.cjs'];

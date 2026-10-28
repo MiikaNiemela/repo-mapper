@@ -76,3 +76,24 @@ test('resolveImport maps packages implemented in the repository (workspaces)', (
   assert.equal(resolveImport('x.ts', '@app/core/util', files, packages), 'packages/core/src/util.ts');
   assert.equal(resolveImport('x.ts', 'ui', files, packages), 'packages/ui/lib/main.js');
 });
+
+test('extractImports skips regular expression literals containing comment delimiters', () => {
+  const source = "const delimiter = /[/*]/;\nconst re = /\\/*x/g;\nimport real from './real.js';\n";
+  assert.deepEqual(extractImports(source), ['./real.js']);
+});
+
+test('extractImports ignores import-like text inside string and template literals', () => {
+  const source = [
+    `const help = "require('./fake.js')";`,
+    "const tpl = `import x from './tpl-fake'; ${require('./in-expression')}`;",
+    "import real from './real.js';",
+  ].join('\n');
+  assert.deepEqual(extractImports(source), ['./in-expression', './real.js']);
+});
+
+test('extractImports scans objects with import properties in linear time', () => {
+  const source = `export default [${Array(100000).fill('{ import: 0 }').join(',')}];`;
+  const start = Date.now();
+  assert.deepEqual(extractImports(source), []);
+  assert.ok(Date.now() - start < 5000);
+});

@@ -32,7 +32,7 @@ npx repo-mapper [directory] [options]
 # nested treemap as SVG on stdout
 npx repo-mapper . > map.svg
 
-# interactive cascaded treemap (hover a component to highlight its connections)
+# interactive cascaded treemap (hover or focus a component to highlight its connections)
 npx repo-mapper path/to/repo --type cascaded --out map.html
 
 # structured data used to draw the treemap

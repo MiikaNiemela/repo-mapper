@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { writeFileSync } from 'node:fs';
+import { symlinkSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { test } from 'node:test';
 import { buildDependencyGraph, listRepositoryFiles } from '../src/index.js';
@@ -52,4 +52,32 @@ test('extensions option selects the mapped files', () => {
   const graph = buildDependencyGraph(root, { useGit: false, extensions: ['.md'] });
   assert.deepEqual(graph.files.map((f) => f.path), ['docs/readme.md']);
   assert.deepEqual(graph.links, []);
+});
+
+test('local packages resolve conditional root exports', () => {
+  const root = createFixture({
+    'packages/a/package.json': JSON.stringify({ name: 'a', exports: { '.': { types: './lib/main.d.ts', import: './lib/main.js' } } }),
+    'packages/a/lib/main.js': 'export const a = 1;\n',
+    'packages/a/lib/main.d.ts': 'export declare const a: number;\n',
+    'packages/b/package.json': JSON.stringify({ name: 'b', exports: { import: './lib/b.js' } }),
+    'packages/b/lib/b.js': 'export const b = 1;\n',
+    'app.js': "import { a } from 'a';\nimport { b } from 'b';\n",
+  });
+  const graph = buildDependencyGraph(root, { useGit: false });
+  const app = graph.files.find((f) => f.path === 'app.js');
+  assert.deepEqual(app.imports, ['packages/a/lib/main.js', 'packages/b/lib/b.js']);
+});
+
+test('listRepositoryFiles rejects symbolic links', () => {
+  const root = createFixture({ 'src/a.js': 'export {};\n', 'node_modules/lib/index.js': 'export {};\n' });
+  try {
+    symlinkSync(path.join(root, 'node_modules/lib/index.js'), path.join(root, 'vendor.js'));
+  } catch {
+    return;
+  }
+  assert.deepEqual(listRepositoryFiles(root, { useGit: false }), ['src/a.js']);
+  if (hasGit) {
+    execFileSync('git', ['init', '-q'], { cwd: root });
+    assert.deepEqual(listRepositoryFiles(root), ['src/a.js']);
+  }
 });

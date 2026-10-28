@@ -92,7 +92,8 @@ export function renderSvg(tree, options = {}) {
   if (showLinks) {
     const leaves = new Map(root.leaves().map((d) => [d.data.id, d]));
     const center = (d) => [(d.x0 + d.x1) / 2, (d.y0 + d.y1) / 2];
-    const maxValue = Math.max(1, ...(tree.links ?? []).map((l) => l.value));
+    let maxValue = 1;
+    for (const link of tree.links ?? []) if (link.value > maxValue) maxValue = link.value;
     out.push(`<g class="links" fill="none" stroke="#333333" pointer-events="none">`);
     for (const link of tree.links ?? []) {
       const s = leaves.get(link.source);
@@ -126,12 +127,16 @@ export function renderSvg(tree, options = {}) {
 export function renderHtml(tree, options = {}) {
   const title = options.title ?? `Repository map: ${tree.name}`;
   const svg = renderSvg(tree, { ...options, showLinks: options.showLinks ?? true });
-  const connections = {};
+  const connections = new Map();
+  const connect = (from, to) => {
+    if (!connections.has(from)) connections.set(from, []);
+    connections.get(from).push(to);
+  };
   for (const { source, target } of tree.links ?? []) {
-    (connections[source] ??= []).push(target);
-    (connections[target] ??= []).push(source);
+    connect(source, target);
+    connect(target, source);
   }
-  const data = JSON.stringify(connections).replace(/</g, '\\u003c');
+  const data = JSON.stringify([...connections]).replace(/</g, '\\u003c');
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -143,15 +148,16 @@ export function renderHtml(tree, options = {}) {
   .repo-map.focus .node.leaf { opacity: 0.25; }
   .repo-map.focus .node.leaf.active { opacity: 1; }
   .repo-map.focus .links path.active { display: inline; stroke-opacity: 0.8; }
+  .repo-map .node.leaf:focus { outline: 2px solid #1d1d1d; }
 </style>
 </head>
 <body>
 <h1>${escapeXml(title)}</h1>
-<p>${options.type === 'cascaded' ? 'Cascaded' : 'Nested'} treemap of the modules implemented in the repository. Hover a component to highlight its connections.</p>
+<p>${options.type === 'cascaded' ? 'Cascaded' : 'Nested'} treemap of the modules implemented in the repository. Hover or focus a component to highlight its connections.</p>
 ${svg}
 <script>
 (() => {
-  const connections = ${data};
+  const connections = new Map(${data});
   const svg = document.querySelector('svg.repo-map');
   const leaves = new Map([...svg.querySelectorAll('.node.leaf')].map((el) => [el.dataset.id, el]));
   const links = [...svg.querySelectorAll('.links path')];
@@ -160,16 +166,20 @@ ${svg}
     svg.querySelectorAll('.active').forEach((el) => el.classList.remove('active'));
   };
   leaves.forEach((el, id) => {
-    el.addEventListener('mouseenter', () => {
+    const highlight = () => {
       clear();
       svg.classList.add('focus');
       el.classList.add('active');
-      (connections[id] || []).forEach((other) => leaves.get(other)?.classList.add('active'));
+      (connections.get(id) || []).forEach((other) => leaves.get(other)?.classList.add('active'));
       links
         .filter((l) => l.dataset.source === id || l.dataset.target === id)
         .forEach((l) => l.classList.add('active'));
-    });
+    };
+    el.setAttribute('tabindex', '0');
+    el.addEventListener('mouseenter', highlight);
+    el.addEventListener('focus', highlight);
     el.addEventListener('mouseleave', clear);
+    el.addEventListener('blur', clear);
   });
 })();
 </script>

@@ -4,7 +4,7 @@ import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
-import { computeTreemap, mapRepository, render, renderSvg } from '../src/index.js';
+import { computeTreemap, mapRepository, render, renderHtml, renderSvg } from '../src/index.js';
 import { SAMPLE_APP, createFixture } from './helpers.js';
 
 const BIN = fileURLToPath(new URL('../bin/repo-mapper.js', import.meta.url));
@@ -57,4 +57,25 @@ test('cli writes the requested output', () => {
   const json = JSON.parse(execFileSync(process.execPath, [BIN, root, '-f', 'json', '--depth', '1', '--no-git'], { encoding: 'utf8' }));
   assert.equal(json.children[0].collapsed, true);
   assert.throws(() => execFileSync(process.execPath, [BIN, root, '--type', 'radial'], { stdio: 'pipe' }));
+});
+
+test('renderSvg handles a large number of links', () => {
+  const { tree } = mapRepository(createFixture(SAMPLE_APP), { useGit: false });
+  const links = Array.from({ length: 200000 }, (_, i) => ({ source: 'x', target: 'y', value: i }));
+  assert.doesNotThrow(() => renderSvg({ ...tree, links }, { showLinks: true }));
+});
+
+test('renderHtml keeps inherited-property names as literal connection keys', () => {
+  const { tree } = mapRepository(createFixture(SAMPLE_APP), { useGit: false });
+  const links = [{ source: 'constructor', target: '__proto__', value: 1 }];
+  const html = renderHtml({ ...tree, links });
+  assert.match(html, /new Map\(\[\["constructor",\["__proto__"\]\],\["__proto__",\["constructor"\]\]\]\)/);
+});
+
+test('renderHtml makes components keyboard focusable for highlighting', () => {
+  const { tree } = mapRepository(createFixture(SAMPLE_APP), { useGit: false });
+  const html = renderHtml(tree);
+  assert.match(html, /setAttribute\('tabindex', '0'\)/);
+  assert.match(html, /addEventListener\('focus', highlight\)/);
+  assert.match(html, /addEventListener\('blur', clear\)/);
 });

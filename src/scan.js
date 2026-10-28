@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process';
-import { readdirSync, readFileSync, statSync } from 'node:fs';
+import { lstatSync, readdirSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 
 /** Directories that never contain code implemented in the repository itself. */
@@ -76,7 +76,7 @@ export function listRepositoryFiles(root, options = {}) {
     .filter((f) => !isExcluded(f, excludedDirs))
     .filter((f) => {
       try {
-        return statSync(path.join(root, f)).isFile();
+        return lstatSync(path.join(root, f)).isFile();
       } catch {
         return false;
       }
@@ -114,6 +114,24 @@ export function scanRepository(root, options = {}) {
   return { files, packages: findLocalPackages(root, all) };
 }
 
+/** Returns the root (`.`) entry of a package.json `exports` field. */
+function rootExport(exports) {
+  if (!exports || typeof exports !== 'object' || Array.isArray(exports)) return exports;
+  const keys = Object.keys(exports);
+  // An object without subpath keys is the shorthand condition object of the root.
+  return keys.some((k) => k.startsWith('.')) ? exports['.'] : exports;
+}
+
+/** Collects the file targets of an export (string, fallback array or conditions), in priority order. */
+function exportTargets(target) {
+  if (typeof target === 'string') return [target];
+  if (Array.isArray(target)) return target.flatMap(exportTargets);
+  if (!target || typeof target !== 'object') return [];
+  return Object.entries(target)
+    .filter(([condition]) => condition !== 'types' && condition !== 'typings')
+    .flatMap(([, value]) => exportTargets(value));
+}
+
 /**
  * Finds the packages implemented inside the repository (e.g. workspaces of a
  * monorepo) so that imports between them are mapped as internal connections.
@@ -135,8 +153,7 @@ export function findLocalPackages(root, files) {
     if (!pkg || typeof pkg.name !== 'string') continue;
     const dir = path.posix.dirname(file);
     const entries = [pkg.source, pkg.module, pkg.main]
-      .concat(typeof pkg.exports === 'string' ? [pkg.exports] : [])
-      .concat(pkg.exports && typeof pkg.exports['.'] === 'string' ? [pkg.exports['.']] : [])
+      .concat(exportTargets(rootExport(pkg.exports)))
       .filter((e) => typeof e === 'string');
     packages.set(pkg.name, { dir: dir === '.' ? '' : dir, entries });
   }
