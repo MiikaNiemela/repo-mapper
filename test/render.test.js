@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawnSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { test } from 'node:test';
@@ -57,6 +57,33 @@ test('cli writes the requested output', () => {
   const json = JSON.parse(execFileSync(process.execPath, [BIN, root, '-f', 'json', '--depth', '1', '--no-git'], { encoding: 'utf8' }));
   assert.equal(json.children[0].collapsed, true);
   assert.throws(() => execFileSync(process.execPath, [BIN, root, '--type', 'radial'], { stdio: 'pipe' }));
+});
+
+test('cli accepts repeatable aliases and prints config warnings to stderr', () => {
+  const root = createFixture({
+    'tsconfig.json': '{ invalid',
+    'src/main.js': "import '@one';\nimport '@two/value';\n",
+    'src/one.js': 'export {};\n',
+    'src/two/value.js': 'export {};\n',
+  });
+  const result = spawnSync(process.execPath, [
+    BIN,
+    root,
+    '--format',
+    'json',
+    '--no-git',
+    '--alias',
+    '@one=src/one',
+    '--alias',
+    '@two/*=src/two/*',
+  ], { encoding: 'utf8' });
+  assert.equal(result.status, 0, result.stderr);
+  const tree = JSON.parse(result.stdout);
+  assert.deepEqual(tree.links.map(({ source, target }) => [source, target]), [
+    ['src/main.js', 'src/one.js'],
+    ['src/main.js', 'src/two/value.js'],
+  ]);
+  assert.match(result.stderr, /warning \[invalid-config\]/);
 });
 
 test('renderSvg handles a large number of links', () => {

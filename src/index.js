@@ -31,7 +31,7 @@ export const OUTPUT_FORMATS = Object.freeze(['svg', 'html', 'json']);
  * resolves the connections between them and builds the module hierarchy.
  *
  * @param {string} root repository directory
- * @param {{ extensions?: string[], useGit?: boolean, exclude?: string[], maxDepth?: number }} [options]
+ * @param {{ extensions?: string[], useGit?: boolean, exclude?: string[], maxDepth?: number, aliases?: { find: string, replacement: string }[] }} [options]
  * @returns {{ graph: ReturnType<typeof buildDependencyGraph>, tree: object }}
  */
 export function mapRepository(root, options = {}) {

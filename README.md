@@ -14,7 +14,9 @@ treemap**.
 * The connections between modules are found by analysing the JavaScript and
   TypeScript imports (`import`, `export … from`, `require()`, `import()`),
   including TypeScript `.js` → `.ts` imports and imports of packages that are
-  implemented in the repository (monorepo workspaces).
+  implemented in the repository (monorepo workspaces). Resolution understands
+  `tsconfig.json` / `jsconfig.json` `baseUrl` and `paths`, package
+  `imports`, declarative Jest aliases, and explicit aliases.
 * Closely connected modules are placed next to each other, and the module with
   the most connections (or, on a tie, the one declaring the most
   dependencies) is placed at the logical centre of its parent.
@@ -48,6 +50,7 @@ npx @miikaniemela/repo-mapper . --format json --depth 2
 | `-w, --width`, `-H, --height` | size of the treemap (default 1200 × 800) |
 | `-d, --depth` | collapse modules deeper than *n* directory levels |
 | `-e, --ext` | comma separated extensions to map (default: JS/TS extensions) |
+| `--alias` | import alias in `find=replacement` form; repeat for multiple ordered rules (for example `--alias '@/*=src/*'`) |
 | `-x, --exclude` | comma separated directory names to exclude (in addition to `node_modules` etc.) |
 | `--links` | draw the connections between components (always on in `html`) |
 | `--no-git` | walk the file system instead of using `git ls-files` |
@@ -65,7 +68,7 @@ The pipeline is also available step by step:
 
 | Function | Description |
 | --- | --- |
-| `buildDependencyGraph(root, options)` | file level graph: `{ files: [{ path, lines, imports, externalImports }], links: [{ source, target }] }` |
+| `buildDependencyGraph(root, options)` | file level graph: `{ files: [{ path, lines, imports, externalImports }], links: [{ source, target }], warnings }` |
 | `buildModuleTree(graph, { maxDepth })` | hierarchy of modules and components ordered by connectivity; every node has `id`, `name`, `type` (`module` / `component`), `value` (lines of code), `dependencies`, `dependents`, `connections`; `tree.links` holds the weighted links between the leaves |
 | `computeTreemap(tree, { type, width, height })` | d3 treemap layout (`d3.hierarchy` + `d3.treemap` with the order preserving `d3.treemapBinary` tiling) |
 | `renderSvg(tree, options)` / `renderHtml(tree, options)` | SVG document / standalone interactive HTML page |
@@ -74,7 +77,39 @@ The pipeline is also available step by step:
 | `listRepositoryFiles(root, options)`, `scanRepository(root, options)` | repository scanning helpers |
 
 Options shared by `mapRepository` / `buildDependencyGraph`: `extensions`,
-`exclude`, `useGit` (default `true`).
+`exclude`, `useGit` (default `true`), and ordered
+`aliases: [{ find, replacement }]`. Alias rules support exact matches or one
+`*` on each side. Relative replacements are resolved from the repository root.
+
+`buildDependencyGraph()` also returns `warnings`, an array of structured
+`{ code, message, path? }` configuration warnings. The library does not write
+these warnings to the console; the CLI prints them to stderr and continues.
+
+### Import resolution
+
+For JavaScript and TypeScript files, repository-local imports are resolved in
+this order:
+
+1. relative imports;
+2. explicit `aliases` / `--alias` rules;
+3. the nearest `tsconfig.json` or `jsconfig.json` `paths` and `baseUrl`;
+4. the importing package's `package.json` `imports`;
+5. packages implemented in the repository.
+
+Config files may contain JSON comments and trailing commas. Relative and npm
+package `extends` chains are supported. The nearest `tsconfig.json` takes
+precedence over `jsconfig.json` when both are in the same directory.
+
+Jest `moduleNameMapper` aliases are read from each package's `package.json` or
+from `jest.config.json` (which takes precedence). Anchored exact patterns and
+one `(.*)` capture are supported. Dynamic configuration is deliberately never
+executed: `vite.config.*`, `webpack.config.*`, and JavaScript/TypeScript Jest
+configs are not loaded. Use `aliases` or `--alias` for those tools.
+
+Only JavaScript and TypeScript syntax is currently analysed for connections.
+Passing other extensions with `--ext` maps those files as boxes but does not
+infer their imports. The analyser registry is internal for now, and the default
+extension set remains JavaScript and TypeScript.
 
 ## Development
 

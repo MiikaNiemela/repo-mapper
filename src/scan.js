@@ -100,7 +100,9 @@ export function countLines(source) {
  * @param {{ extensions?: string[], useGit?: boolean, exclude?: string[] }} [options]
  * @returns {{
  *   files: { path: string, lines: number, source: string }[],
- *   packages: Map<string, { dir: string, entries: string[] }>,
+ *   packages: Map<string, { dir: string, entries: string[], imports?: object, jest?: object, aliases?: object[] }>,
+ *   packageScopes: { dir: string, imports?: object, jest?: object, aliases?: object[] }[],
+ *   repositoryFiles: string[],
  * }}
  */
 export function scanRepository(root, options = {}) {
@@ -112,7 +114,12 @@ export function scanRepository(root, options = {}) {
       const source = readFileSync(path.join(root, f), 'utf8');
       return { path: f, lines: countLines(source), source };
     });
-  return { files, packages: findLocalPackages(root, all) };
+  return {
+    files,
+    packages: findLocalPackages(root, all),
+    packageScopes: findPackageScopes(root, all),
+    repositoryFiles: all,
+  };
 }
 
 /** Returns the root (`.`) entry of a package.json `exports` field. */
@@ -139,7 +146,7 @@ function exportTargets(target) {
  *
  * @param {string} root
  * @param {string[]} files repository files (posix, relative)
- * @returns {Map<string, { dir: string, entries: string[] }>} package name -> info
+ * @returns {Map<string, { dir: string, entries: string[], imports?: object, jest?: object }>} package name -> info
  */
 export function findLocalPackages(root, files) {
   const packages = new Map();
@@ -156,7 +163,33 @@ export function findLocalPackages(root, files) {
     const entries = [pkg.source, pkg.module, pkg.main]
       .concat(exportTargets(rootExport(pkg.exports)))
       .filter((e) => typeof e === 'string');
-    packages.set(pkg.name, { dir: dir === '.' ? '' : dir, entries });
+    packages.set(pkg.name, {
+      dir: dir === '.' ? '' : dir,
+      entries,
+      imports: pkg.imports,
+      jest: pkg.jest,
+    });
   }
   return packages;
+}
+
+/** Finds every package scope, including package.json files without a name. */
+export function findPackageScopes(root, files) {
+  const scopes = [];
+  for (const file of files) {
+    if (path.posix.basename(file) !== 'package.json') continue;
+    try {
+      const pkg = JSON.parse(readFileSync(path.join(root, file), 'utf8'));
+      if (!pkg || typeof pkg !== 'object') continue;
+      const dir = path.posix.dirname(file);
+      scopes.push({
+        dir: dir === '.' ? '' : dir,
+        imports: pkg.imports,
+        jest: pkg.jest,
+      });
+    } catch {
+      // Invalid package manifests are already ignored by package discovery.
+    }
+  }
+  return scopes;
 }

@@ -91,6 +91,16 @@ test('extractImports ignores import-like text inside string and template literal
   assert.deepEqual(extractImports(source), ['./in-expression', './real.js']);
 });
 
+test('extractImports ignores JSX text and scans JSX and nested template expressions', () => {
+  const source = [
+    "const view = <div>import fake from './jsx-fake' {require('./jsx-real')}</div>;",
+    "const nested = `outer ${`inner ${import('./nested-real')}`} import x from './fake'`;",
+    "const quoted = /[\"']\\/\\* import x from '.\\/regex-fake'/;",
+    "import real from './real.js';",
+  ].join('\n');
+  assert.deepEqual(extractImports(source), ['./jsx-real', './nested-real', './real.js']);
+});
+
 test('extractImports scans objects with import properties in linear time', () => {
   const source = `export default [${Array(100000).fill('{ import: 0 }').join(',')}];`;
   const start = Date.now();

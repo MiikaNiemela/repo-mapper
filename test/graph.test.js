@@ -86,3 +86,95 @@ test('listRepositoryFiles never maps dist build output', () => {
   const root = createFixture({ 'src/a.js': 'export {};\n', 'dist/a.js': 'export {};\n', 'pkg/dist/b.js': 'export {};\n' });
   assert.deepEqual(listRepositoryFiles(root, { useGit: false }), ['src/a.js']);
 });
+
+test('resolves JSONC tsconfig paths, relative extends and nearest configs', () => {
+  const root = createFixture({
+    'configs/base.json': `{
+      "compilerOptions": {
+        "baseUrl": "..",
+        "paths": { "@root/*": ["src/*"], }, // trailing comma before a comment
+      },
+    }`,
+    'tsconfig.json': '{ "extends": "./configs/base", }\n',
+    'src/root.ts': 'export const root = 1;\n',
+    'src/main.ts': "import { root } from '@root/root';\n",
+    'packages/app/tsconfig.json': JSON.stringify({
+      compilerOptions: { baseUrl: '.', paths: { '@app/*': ['src/*'] } },
+    }),
+    'packages/app/src/value.ts': 'export const value = 1;\n',
+    'packages/app/src/main.ts': "import { value } from '@app/value';\nimport '@root/root';\n",
+  });
+  const graph = buildDependencyGraph(root, { useGit: false });
+  assert.deepEqual(graph.files.find((file) => file.path === 'src/main.ts').imports, ['src/root.ts']);
+  const app = graph.files.find((file) => file.path === 'packages/app/src/main.ts');
+  assert.deepEqual(app.imports, ['packages/app/src/value.ts']);
+  assert.deepEqual(app.externalImports, ['@root/root']);
+  assert.deepEqual(graph.warnings, []);
+});
+
+test('resolves tsconfig extends from an npm package without mapping node_modules', () => {
+  const root = createFixture({
+    'package.json': JSON.stringify({ name: 'app' }),
+    'node_modules/@config/base/package.json': JSON.stringify({ name: '@config/base' }),
+    'node_modules/@config/base/tsconfig.json': JSON.stringify({
+      compilerOptions: { baseUrl: '../../..', paths: { '@/*': ['src/*'] } },
+    }),
+    'tsconfig.json': JSON.stringify({ extends: '@config/base/tsconfig.json' }),
+    'src/value.ts': 'export const value = 1;\n',
+    'src/main.ts': "import { value } from '@/value';\n",
+  });
+  const graph = buildDependencyGraph(root, { useGit: false });
+  assert.deepEqual(graph.files.find((file) => file.path === 'src/main.ts').imports, ['src/value.ts']);
+  assert.ok(graph.files.every((file) => !file.path.includes('node_modules')));
+});
+
+test('resolves package imports, explicit aliases and declarative Jest mappings', () => {
+  const root = createFixture({
+    'package.json': JSON.stringify({
+      name: 'app',
+      imports: {
+        '#exact': { types: './types/exact.d.ts', import: './src/exact.ts' },
+        '#lib/*': ['./missing/*', './src/lib/*'],
+      },
+      jest: { moduleNameMapper: { '^old$': '<rootDir>/src/wrong.ts' } },
+    }),
+    'jest.config.json': JSON.stringify({
+      moduleNameMapper: { '^test/(.*)$': '<rootDir>/src/test/$1' },
+    }),
+    'src/exact.ts': 'export {};\n',
+    'types/exact.d.ts': 'export {};\n',
+    'src/lib/value.ts': 'export {};\n',
+    'src/test/mock.ts': 'export {};\n',
+    'src/explicit.ts': 'export {};\n',
+    'src/main.ts': [
+      "import '#exact';",
+      "import '#lib/value';",
+      "import 'test/mock';",
+      "import '@explicit';",
+      "import 'old';",
+    ].join('\n'),
+  });
+  const graph = buildDependencyGraph(root, {
+    useGit: false,
+    aliases: [{ find: '@explicit', replacement: 'src/explicit' }],
+  });
+  const main = graph.files.find((file) => file.path === 'src/main.ts');
+  assert.deepEqual(main.imports, ['src/exact.ts', 'src/lib/value.ts', 'src/test/mock.ts', 'src/explicit.ts']);
+  assert.deepEqual(main.externalImports, ['old']);
+});
+
+test('reports malformed and unsupported configs as structured warnings', () => {
+  const root = createFixture({
+    'package.json': JSON.stringify({
+      name: 'app',
+      jest: { moduleNameMapper: { 'complex(?=x)': '<rootDir>/src/x' } },
+    }),
+    'tsconfig.json': '{ invalid',
+    'src/main.ts': 'export {};\n',
+  });
+  const graph = buildDependencyGraph(root, { useGit: false, aliases: [{ find: '**', replacement: 1 }] });
+  assert.deepEqual(
+    graph.warnings.map((warning) => warning.code).sort(),
+    ['invalid-alias', 'invalid-config', 'unsupported-jest-alias'],
+  );
+});

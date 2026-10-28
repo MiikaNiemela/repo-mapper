@@ -22,7 +22,9 @@ function tokenize(source) {
   const tokens = [];
   const { length } = source;
   const templateDepths = [];
+  const jsxExpressionDepths = [];
   let braceDepth = 0;
+  let jsxDepth = 0;
   let i = 0;
 
   const regexAllowed = () => {
@@ -49,10 +51,52 @@ function tokenize(source) {
     return length;
   };
 
+  const skipJsxTag = (j) => {
+    const closing = source[j + 1] === '/';
+    let cursor = j + (closing ? 2 : 1);
+    let quote = null;
+    while (cursor < length) {
+      const current = source[cursor];
+      if (quote) {
+        if (current === '\\') cursor += 2;
+        else {
+          if (current === quote) quote = null;
+          cursor += 1;
+        }
+      } else if (current === '"' || current === "'") {
+        quote = current;
+        cursor += 1;
+      } else if (current === '>') {
+        let previous = cursor - 1;
+        while (previous > j && /\s/.test(source[previous])) previous -= 1;
+        const selfClosing = source[previous] === '/';
+        if (closing) jsxDepth = Math.max(0, jsxDepth - 1);
+        else if (!selfClosing) jsxDepth += 1;
+        return cursor + 1;
+      } else cursor += 1;
+    }
+    return length;
+  };
+
   while (i < length) {
     const c = source[i];
     const next = source[i + 1];
-    if (c === '/' && next === '/') {
+    const inJsxText = jsxDepth > 0 && jsxExpressionDepths.length === 0;
+    const jsxTagStart =
+      c === '<' &&
+      (next === '>' || next === '/' || isIdentifierStart(next ?? '')) &&
+      (inJsxText || regexAllowed());
+    if (inJsxText && c === '{') {
+      jsxExpressionDepths.push(braceDepth);
+      braceDepth += 1;
+      tokens.push({ type: 'punct', value: c });
+      i += 1;
+    } else if (inJsxText && !jsxTagStart) {
+      i += 1;
+    } else if (jsxTagStart) {
+      i = skipJsxTag(i);
+      tokens.push({ type: 'value', value: '<jsx>' });
+    } else if (c === '/' && next === '/') {
       const end = source.indexOf('\n', i);
       i = end === -1 ? length : end;
     } else if (c === '/' && next === '*') {
@@ -74,7 +118,11 @@ function tokenize(source) {
       i += 1;
     } else if (c === '}') {
       braceDepth -= 1;
-      if (templateDepths.length && templateDepths[templateDepths.length - 1] === braceDepth) {
+      if (jsxExpressionDepths.length && jsxExpressionDepths[jsxExpressionDepths.length - 1] === braceDepth) {
+        jsxExpressionDepths.pop();
+        tokens.push({ type: 'punct', value: c });
+        i += 1;
+      } else if (templateDepths.length && templateDepths[templateDepths.length - 1] === braceDepth) {
         templateDepths.pop();
         i = skipTemplate(i + 1);
         tokens.push({ type: 'value', value: '`' });
@@ -198,6 +246,67 @@ function resolvePath(target, fileSet) {
   return candidates(normalized).find((c) => fileSet.has(c)) ?? null;
 }
 
+function matchPattern(pattern, specifier) {
+  const star = pattern.indexOf('*');
+  if (star === -1) return pattern === specifier ? '' : null;
+  const prefix = pattern.slice(0, star);
+  const suffix = pattern.slice(star + 1);
+  if (!specifier.startsWith(prefix) || !specifier.endsWith(suffix)) return null;
+  return specifier.slice(prefix.length, specifier.length - suffix.length);
+}
+
+function repositoryTarget(target, root) {
+  if (!path.isAbsolute(target)) return target;
+  const relative = path.relative(root, target);
+  return relative.startsWith('..') ? null : relative.split(path.sep).join('/');
+}
+
+function resolveRules(specifier, rules, fileSet, root, ordered = false) {
+  const candidates = ordered
+    ? rules
+    : [...rules].sort((a, b) => {
+      const aExact = a.find.includes('*') ? 0 : 1;
+      const bExact = b.find.includes('*') ? 0 : 1;
+      return bExact - aExact || b.find.indexOf('*') - a.find.indexOf('*');
+    });
+  for (const rule of candidates) {
+    const capture = matchPattern(rule.find, specifier);
+    if (capture === null) continue;
+    const targets = rule.targets ?? [rule.replacement];
+    for (const replacement of targets) {
+      const target = repositoryTarget(replacement.replace('*', capture), root);
+      if (target === null) continue;
+      const resolved = resolvePath(target, fileSet);
+      if (resolved) return resolved;
+    }
+    if (ordered) return null;
+  }
+  return null;
+}
+
+function importTargets(value) {
+  if (typeof value === 'string') return [value];
+  if (Array.isArray(value)) return value.flatMap(importTargets);
+  if (!value || typeof value !== 'object') return [];
+  return Object.entries(value)
+    .filter(([condition]) => condition !== 'types' && condition !== 'typings')
+    .flatMap(([, target]) => importTargets(target));
+}
+
+function resolvePackageImport(specifier, scope, fileSet) {
+  const imports = scope?.imports;
+  if (!imports || typeof imports !== 'object' || Array.isArray(imports)) return null;
+  const rules = Object.entries(imports)
+    .filter(([find]) => find.startsWith('#') && (find.match(/\*/g) ?? []).length <= 1)
+    .map(([find, value]) => ({
+      find,
+      targets: importTargets(value)
+        .filter((target) => target.startsWith('./') && (target.match(/\*/g) ?? []).length <= 1)
+        .map((target) => path.posix.join(scope.dir, target)),
+    }));
+  return resolveRules(specifier, rules, fileSet, '', false);
+}
+
 function splitPackageSpecifier(specifier) {
   const parts = specifier.split('/');
   const count = specifier.startsWith('@') ? 2 : 1;
@@ -213,16 +322,35 @@ function splitPackageSpecifier(specifier) {
  * @param {string} specifier
  * @param {Set<string>} fileSet repository source files
  * @param {Map<string, { dir: string, entries: string[] }>} [packages] packages implemented in the repository
+ * @param {{ root?: string, aliases?: { find: string, replacement: string }[], config?: { baseUrl?: string, paths?: object[] }, packageScope?: object }} [context]
  * @returns {string | null}
  */
-export function resolveImport(fromFile, specifier, fileSet, packages = new Map()) {
-  const cut = specifier.search(/[?#]/);
+export function resolveImport(fromFile, specifier, fileSet, packages = new Map(), context = {}) {
+  const query = specifier.indexOf('?');
+  const hash = specifier.startsWith('#') ? -1 : specifier.indexOf('#');
+  const cut = [query, hash].filter((index) => index !== -1).sort((a, b) => a - b)[0] ?? -1;
   const clean = cut === -1 ? specifier : specifier.slice(0, cut);
   if (!clean) return null;
   if (clean.startsWith('.')) {
     return resolvePath(path.posix.join(path.posix.dirname(fromFile), clean), fileSet);
   }
   if (clean.startsWith('/') || /^[a-z][a-z0-9+.-]*:/i.test(clean)) return null;
+
+  const root = context.root ?? '';
+  const explicit = resolveRules(clean, context.aliases ?? [], fileSet, root, true);
+  if (explicit) return explicit;
+  const configured = resolveRules(clean, context.config?.paths ?? [], fileSet, root, false);
+  if (configured) return configured;
+  if (context.config?.baseUrl) {
+    const baseTarget = repositoryTarget(path.posix.join(context.config.baseUrl, clean), root);
+    if (baseTarget) {
+      const resolved = resolvePath(baseTarget, fileSet);
+      if (resolved) return resolved;
+    }
+  }
+  if (clean.startsWith('#')) {
+    return resolvePackageImport(clean, context.packageScope, fileSet);
+  }
 
   const { name, subpath } = splitPackageSpecifier(clean);
   const pkg = packages.get(name);
