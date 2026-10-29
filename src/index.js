@@ -55,7 +55,15 @@ export function mapRepository(root, options = {}) {
  * Renders a module tree in the requested output format.
  *
  * @param {object} tree output of `buildModuleTree` / `mapRepository`
- * @param {{ format?: 'svg' | 'html' | 'json', type?: 'nested' | 'cascaded', width?: number, height?: number, showLinks?: boolean, title?: string }} [options]
+ * @param {{
+ *   format?: 'svg' | 'html' | 'json',
+ *   type?: 'nested' | 'cascaded',
+ *   width?: number,
+ *   height?: number,
+ *   showLinks?: boolean,
+ *   title?: string,
+ *   styles?: Parameters<typeof renderSvg>[1]['styles'],
+ * }} [options]
  * @returns {string}
  */
 export function render(tree, options = {}) {

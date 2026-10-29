@@ -10,6 +10,87 @@ const escapeXml = (value) =>
     .replace(/'/g, '&#39;');
 
 const CHAR_WIDTH = 6.5;
+const STYLE_PROPERTIES = new Set(['fill', 'opacity', 'stroke', 'strokeWidth']);
+
+function validateStyle(style, label, extraProperties = new Set()) {
+  if (style === undefined) return {};
+  if (!style || typeof style !== 'object' || Array.isArray(style)) {
+    throw new TypeError(`${label} must be an object`);
+  }
+  for (const property of Object.keys(style)) {
+    if (!STYLE_PROPERTIES.has(property) && !extraProperties.has(property)) {
+      throw new TypeError(`Unknown ${label} property "${property}"`);
+    }
+  }
+  for (const property of ['fill', 'stroke']) {
+    if (property in style && (typeof style[property] !== 'string' || !style[property].trim())) {
+      throw new TypeError(`${label}.${property} must be a non-empty string`);
+    }
+  }
+  if ('opacity' in style && (!Number.isFinite(style.opacity) || style.opacity < 0 || style.opacity > 1)) {
+    throw new RangeError(`${label}.opacity must be a number from 0 through 1`);
+  }
+  if ('strokeWidth' in style && (!Number.isFinite(style.strokeWidth) || style.strokeWidth < 0)) {
+    throw new RangeError(`${label}.strokeWidth must be a non-negative number`);
+  }
+  return Object.fromEntries(
+    Object.entries(style).filter(([property]) => STYLE_PROPERTIES.has(property)),
+  );
+}
+
+function nodeStyleResolver(root, styles) {
+  if (styles === undefined) return () => ({});
+  if (!styles || typeof styles !== 'object' || Array.isArray(styles)) {
+    throw new TypeError('styles must be an object');
+  }
+  const allowed = new Set(['default', 'module', 'component', 'nodes']);
+  for (const property of Object.keys(styles)) {
+    if (!allowed.has(property)) throw new TypeError(`Unknown styles property "${property}"`);
+  }
+
+  const defaults = validateStyle(styles.default, 'styles.default');
+  const byType = {
+    module: validateStyle(styles.module, 'styles.module'),
+    component: validateStyle(styles.component, 'styles.component'),
+  };
+  if (styles.nodes !== undefined && !Array.isArray(styles.nodes)) {
+    throw new TypeError('styles.nodes must be an array');
+  }
+
+  const hierarchyNodes = root.descendants();
+  const nodesById = new Map(hierarchyNodes.map((node) => [node.data.id, node]));
+  const rules = new Map();
+  for (const [index, rule] of (styles.nodes ?? []).entries()) {
+    const label = `styles.nodes[${index}]`;
+    const resolved = validateStyle(rule, label, new Set(['id', 'includeDescendants']));
+    if (typeof rule.id !== 'string' || !rule.id) {
+      throw new TypeError(`${label}.id must be a non-empty string`);
+    }
+    if (rules.has(rule.id)) throw new Error(`Duplicate style rule for node "${rule.id}"`);
+    const node = nodesById.get(rule.id);
+    if (!node) throw new Error(`Unknown style node ID "${rule.id}"`);
+    if ('includeDescendants' in rule && typeof rule.includeDescendants !== 'boolean') {
+      throw new TypeError(`${label}.includeDescendants must be a boolean`);
+    }
+    if (rule.includeDescendants && node.data.type !== 'module') {
+      throw new Error(`Style rule for component "${rule.id}" cannot include descendants`);
+    }
+    rules.set(rule.id, { ...resolved, includeDescendants: rule.includeDescendants === true });
+  }
+
+  return (node) => {
+    const resolved = { ...defaults, ...byType[node.data.type] };
+    const ancestors = node.ancestors().reverse();
+    for (let index = 0; index < ancestors.length - 1; index += 1) {
+      const ancestorRule = rules.get(ancestors[index].data.id);
+      if (ancestorRule?.includeDescendants) Object.assign(resolved, ancestorRule);
+    }
+    const exact = rules.get(node.data.id);
+    if (exact) Object.assign(resolved, exact);
+    delete resolved.includeDescendants;
+    return resolved;
+  };
+}
 
 function fitLabel(text, width) {
   const maxChars = Math.floor((width - 6) / CHAR_WIDTH);
@@ -36,12 +117,26 @@ function describe(d) {
  *   width?: number,
  *   height?: number,
  *   showLinks?: boolean,
+ *   styles?: {
+ *     default?: { fill?: string, opacity?: number, stroke?: string, strokeWidth?: number },
+ *     module?: { fill?: string, opacity?: number, stroke?: string, strokeWidth?: number },
+ *     component?: { fill?: string, opacity?: number, stroke?: string, strokeWidth?: number },
+ *     nodes?: Array<{
+ *       id: string,
+ *       includeDescendants?: boolean,
+ *       fill?: string,
+ *       opacity?: number,
+ *       stroke?: string,
+ *       strokeWidth?: number,
+ *     }>,
+ *   },
  * }} [options]
  * @returns {string}
  */
 export function renderSvg(tree, options = {}) {
   const { type = 'nested', width = 1200, height = 800, showLinks = false } = options;
   const root = computeTreemap(tree, { type, width, height });
+  const styleFor = nodeStyleResolver(root, options.styles);
   const color = scaleOrdinal(schemeTableau10);
   const topLevel = (d) => (d.depth === 0 ? d : d.ancestors().find((a) => a.depth === 1));
   const fill = (d) => {
@@ -71,14 +166,21 @@ export function renderSvg(tree, options = {}) {
     const leaf = !d.children;
     const classes = ['node', d.data.type, leaf ? 'leaf' : 'branch'];
     const filter = type === 'cascaded' && d.depth > 0 ? ' filter="url(#repo-map-shadow)"' : '';
-    const stroke = type === 'nested' ? (leaf ? '#ffffff' : '#555555') : '#ffffff';
+    const styles = styleFor(d);
+    const stroke = styles.stroke ?? (type === 'nested' ? (leaf ? '#ffffff' : '#555555') : '#ffffff');
+    const strokeWidth = styles.strokeWidth ?? (leaf ? 0.5 : 1);
+    const opacity = styles.opacity === undefined
+      ? ''
+      : ` opacity="${styles.opacity}" style="--repo-map-opacity:${styles.opacity};` +
+        `--repo-map-dimmed-opacity:${styles.opacity * 0.25}"`;
     out.push(
       `<g class="${classes.join(' ')}" data-id="${escapeXml(d.data.id)}" data-depth="${d.depth}" ` +
-        `transform="translate(${d.x0},${d.y0})">`,
+        `transform="translate(${d.x0},${d.y0})"${opacity}>`,
     );
     out.push(`<title>${escapeXml(describe(d))}</title>`);
     out.push(
-      `<rect width="${w}" height="${h}" fill="${fill(d)}" stroke="${stroke}" stroke-width="${leaf ? 0.5 : 1}"${filter}/>`,
+      `<rect width="${w}" height="${h}" fill="${escapeXml(styles.fill ?? fill(d))}" ` +
+        `stroke="${escapeXml(stroke)}" stroke-width="${strokeWidth}"${filter}/>`,
     );
     const label = fitLabel(d.data.name, w);
     if (label && (leaf ? h >= 14 : h >= LABEL_HEIGHT)) {
@@ -145,8 +247,9 @@ export function renderHtml(tree, options = {}) {
 <style>
   body { font-family: system-ui, sans-serif; margin: 16px; color: #1d1d1d; }
   .repo-map .links path { display: none; }
-  .repo-map.focus .node.leaf { opacity: 0.25; }
-  .repo-map.focus .node.leaf.active { opacity: 1; }
+  .repo-map .node { opacity: var(--repo-map-opacity, 1); }
+  .repo-map.focus .node.leaf { opacity: var(--repo-map-dimmed-opacity, 0.25); }
+  .repo-map.focus .node.leaf.active { opacity: var(--repo-map-opacity, 1); }
   .repo-map.focus .links path.active { display: inline; stroke-opacity: 0.8; }
   .repo-map .node.leaf:focus { outline: 2px solid #1d1d1d; }
 </style>
