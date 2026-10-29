@@ -121,6 +121,56 @@ const { graph, tree } = mapRepository('path/to/repo', {
 const svg = render(tree, { format: 'svg', type: 'cascaded', width: 1600, height: 1000 });
 ```
 
+### Highlighting modules and components
+
+`render`, `renderSvg`, and `renderHtml` accept a `styles` option for overlays
+such as change heatmaps, pull request impact, and dependency blast radius.
+Callers calculate the affected node IDs and visual values; repo-mapper applies
+them to the diagram.
+
+```js
+const changedAt = new Map([
+  ['src/api/router.ts', 1],
+  ['src/api/users.ts', 0.65],
+  ['src/db/index.ts', 0.2],
+]);
+
+const html = render(tree, {
+  format: 'html',
+  styles: {
+    default: { stroke: '#ffffff' },
+    module: { fill: '#f5f5f5' },
+    component: { fill: '#ffffff', opacity: 0.35 },
+    nodes: [...changedAt].map(([id, intensity]) => ({
+      id,
+      fill: `rgb(255 ${Math.round(255 * (1 - intensity))} ${Math.round(255 * (1 - intensity))})`,
+      opacity: 1,
+    })),
+  },
+});
+```
+
+The available style properties are `fill`, `opacity`, `stroke`, and
+`strokeWidth`. Defaults are applied in this order: `default`, the matching
+`module` or `component` style, inherited node rules, then the exact node rule.
+Set `includeDescendants: true` on a module rule to style its complete subtree:
+
+```js
+const svg = renderSvg(tree, {
+  styles: {
+    component: { opacity: 0.2 },
+    nodes: [
+      { id: 'src/payments', includeDescendants: true, fill: '#ffd6d6', opacity: 0.7 },
+      { id: 'src/payments/checkout.ts', fill: '#ff3333', opacity: 1, stroke: '#990000', strokeWidth: 2 },
+    ],
+  },
+});
+```
+
+Node IDs must exist in the rendered tree and may appear only once in `nodes`.
+Empty color values, opacity outside `0` through `1`, negative stroke widths,
+unknown IDs, and duplicate rules are rejected with an error.
+
 The pipeline is also available step by step:
 
 | Function | Description |
