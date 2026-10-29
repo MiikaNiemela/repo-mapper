@@ -175,6 +175,10 @@ See [Pull request repository map in GitHub Actions](docs/github-pr-diagram.md)
 for a CI workflow that highlights edited and affected modules in pull request
 descriptions.
 
+See [Code age heatmap with a TypeScript Node.js app](docs/code-age-heatmap.md)
+for an example that generates `age-heatmap.md`, a cascaded SVG treemap, and a
+ten-color age legend ranging from white to dark red.
+
 The pipeline is also available step by step:
 
 | Function | Description |
