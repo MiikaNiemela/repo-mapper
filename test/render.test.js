@@ -131,3 +131,10 @@ test('renderHtml makes components keyboard focusable for highlighting', () => {
   assert.match(html, /addEventListener\('focus', highlight\)/);
   assert.match(html, /addEventListener\('blur', clear\)/);
 });
+
+test('renderHtml preserves highlighting while crossing gaps between components', () => {
+  const { tree } = mapRepository(createFixture(SAMPLE_APP), { useGit: false });
+  const html = renderHtml(tree);
+  assert.match(html, /svg\.addEventListener\('mouseleave', clear\)/);
+  assert.doesNotMatch(html, /el\.addEventListener\('mouseleave', clear\)/);
+});

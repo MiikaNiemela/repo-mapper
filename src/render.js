@@ -178,13 +178,12 @@ ${svg}
     el.setAttribute('tabindex', '0');
     el.addEventListener('mouseenter', highlight);
     el.addEventListener('focus', highlight);
-    el.addEventListener('mouseleave', clear);
     el.addEventListener('blur', clear);
   });
+  svg.addEventListener('mouseleave', clear);
 })();
 </script>
 </body>
 </html>
 `;
 }
-
