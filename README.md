@@ -171,6 +171,10 @@ Node IDs must exist in the rendered tree and may appear only once in `nodes`.
 Empty color values, opacity outside `0` through `1`, negative stroke widths,
 unknown IDs, and duplicate rules are rejected with an error.
 
+See [Pull request repository map in GitHub Actions](docs/github-pr-diagram.md)
+for a CI workflow that highlights edited and affected modules in pull request
+descriptions.
+
 The pipeline is also available step by step:
 
 | Function | Description |
