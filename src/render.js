@@ -166,6 +166,7 @@ export function renderSvg(tree, options = {}) {
     const leaf = !d.children;
     const classes = ['node', d.data.type, leaf ? 'leaf' : 'branch'];
     const filter = type === 'cascaded' && d.depth > 0 ? ' filter="url(#repo-map-shadow)"' : '';
+    const defaultFill = fill(d);
     const styles = styleFor(d);
     const stroke = styles.stroke ?? (type === 'nested' ? (leaf ? '#ffffff' : '#555555') : '#ffffff');
     const strokeWidth = styles.strokeWidth ?? (leaf ? 0.5 : 1);
@@ -179,7 +180,7 @@ export function renderSvg(tree, options = {}) {
     );
     out.push(`<title>${escapeXml(describe(d))}</title>`);
     out.push(
-      `<rect width="${w}" height="${h}" fill="${escapeXml(styles.fill ?? fill(d))}" ` +
+      `<rect width="${w}" height="${h}" fill="${escapeXml(styles.fill ?? defaultFill)}" ` +
         `stroke="${escapeXml(stroke)}" stroke-width="${strokeWidth}"${filter}/>`,
     );
     const label = fitLabel(d.data.name, w);

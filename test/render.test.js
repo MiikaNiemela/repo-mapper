@@ -38,6 +38,25 @@ for (const type of ['nested', 'cascaded']) {
     assert.doesNotMatch(svg, /node_modules/);
     assert.equal(svg.includes('repo-map-shadow'), type === 'cascaded');
   });
+
+  test(`renderSvg preserves unstyled ${type} node colors when overriding a module fill`, () => {
+    const { tree } = mapRepository(createFixture({
+      'alpha/a.js': 'export {};\n',
+      'beta/b.js': 'export {};\n',
+    }), { useGit: false });
+    const id = tree.children[0].id;
+    const baseline = renderSvg(tree, { type });
+    const styled = renderSvg(tree, {
+      type,
+      styles: { nodes: [{ id, fill: '#663399' }] },
+    });
+
+    assert.match(nodeMarkup(styled, id), /fill="#663399"/);
+    for (const node of computeTreemap(tree, { type }).descendants()) {
+      if (node.data.id === id) continue;
+      assert.equal(nodeMarkup(styled, node.data.id), nodeMarkup(baseline, node.data.id));
+    }
+  });
 }
 
 test('computeTreemap rejects unknown types', () => {
