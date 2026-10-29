@@ -17,9 +17,8 @@ lines of code, not age.
 - Git and a repository with commits and complete history. In GitHub Actions,
   use `actions/checkout` with `fetch-depth: 0`.
 - A repo-mapper release containing the `styles` rendering API described in the
-  [README](../README.md#highlighting-modules-and-components). This documentation
-  branch does not yet include that implementation; until it is merged and
-  published, use a local checkout of `feat/higlight-options` instead.
+  [README](../README.md#highlighting-modules-and-components). If the published
+  package predates it, install from a local checkout of `main` instead.
 
 Create a small tooling app outside the repository you want to map:
 
@@ -30,7 +29,7 @@ npm init -y
 npm pkg set type=module
 npm install @miikaniemela/repo-mapper
 # Before a release with styles support is available, replace the install above:
-# npm install /absolute/path/to/repo-mapper-with-highlighting
+# npm install /absolute/path/to/repo-mapper
 ```
 
 For GitHub Packages authentication, follow the package access guidance in the
